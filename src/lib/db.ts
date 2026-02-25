@@ -44,7 +44,7 @@ export async function initDb() {
    * - 使用 PRAGMA table_info 查询现有列，缺啥补啥，保证多次调用幂等
    */
   const cols = await db.execute("PRAGMA table_info(users)");
-  const existing = (cols.rows as { name: string }[]).map((c) => c.name);
+  const existing = (cols.rows as unknown as { name: string }[]).map((c) => c.name);
   const addIfMissing = async (name: string) => {
     if (!existing.includes(name)) {
       await db.execute(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
