@@ -65,9 +65,10 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* 导航/登录页 logo 图标：强制使用色卡橘色 */
+/* 通用小 logo 图标：与头像背景保持同一黄色（等价于 bg-amber-100）。
+   某些页面（例如导航栏左上角）可以通过行内 style 覆盖为品牌橙色。 */
 .app-logo-icon {
-  background: linear-gradient(to bottom right, var(--brand-orange), var(--brand-orange-dark)) !important;
+  background: #fef3c7;
 }
 
 /* ─── 渐变动画 Keyframes ───────────────────────── */
@@ -145,16 +146,32 @@ body {
     --stop-1: 0%; --stop-2: 8.8%; --stop-3: 21.44%; --stop-4: 71.34%; --stop-5: 85.76%;
   }
   .gradient-button-variant {
-    --color-1: #000022; --color-2: #1f3f6d; --color-3: #469396; --color-4: #f1ffa5;
+    --color-1: #030014;
+    --color-2: #3A0251;
+    --color-3: #8B40B7;
+    --color-4: #FFDAA8;
     --border-angle: 200deg;
-    --border-color-1: hsla(320,75%,90%,.6); --border-color-2: hsla(320,50%,90%,.15);
+    --border-color-1: #8B40B7;
+    --border-color-2: #E6E6FA;
   }
   .gradient-button-variant:hover {
-    --pos-x: 0%; --pos-y: 95.51%; --spread-x: 110.24%; --spread-y: 110.2%;
-    --color-1: #000020; --color-2: #f1ffa5; --color-3: #469396; --color-4: #1f3f6d; --color-5: #000;
-    --stop-1: 0%; --stop-2: 10%; --stop-3: 35.44%; --stop-4: 71.34%; --stop-5: 90.76%;
+    --pos-x: 0%;
+    --pos-y: 95.51%;
+    --spread-x: 110.24%;
+    --spread-y: 110.2%;
+    --color-1: #3A0251;
+    --color-2: #8B40B7;
+    --color-3: #FFDAA8;
+    --color-4: #FFD700;
+    --color-5: #000;
+    --stop-1: 0%;
+    --stop-2: 10%;
+    --stop-3: 35.44%;
+    --stop-4: 71.34%;
+    --stop-5: 90.76%;
     --border-angle: 210deg;
-    --border-color-1: hsla(320,75%,90%,.2); --border-color-2: hsla(320,50%,90%,.75);
+    --border-color-1: #E6E6FA;
+    --border-color-2: #8B40B7;
   }
 }
 

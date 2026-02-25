@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserId } from "@/lib/api-helpers";
+import { checkUsageLimit } from "@/lib/subscription";
 import { db } from "@/lib/db";
 import { randomUUID } from "crypto";
 
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const id = body.id || randomUUID();
   const now = new Date().toISOString();
+
+  // 免费用户项目数量限制（最多 3 个）
+  const ok = await checkUsageLimit(auth.userId, "project_count");
+  if (!ok) {
+    return NextResponse.json(
+      { error: "免费版最多只能创建 3 个项目，请升级 Pro 解锁无限项目。" },
+      { status: 403 },
+    );
+  }
 
   await db.execute({
     sql: `

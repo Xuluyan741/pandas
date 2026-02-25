@@ -89,9 +89,15 @@ export function WBSInput({ projects, onImport }: WBSInputProps) {
               type="button"
               className={cn(
                 "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                p.group === "创业" && "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100 dark:border-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-300",
-                p.group === "工作" && "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300",
-                p.group === "生活" && "border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300"
+                // 创业：黄色系（与大盘创业组一致）
+                p.group === "创业" &&
+                  "border-[#FFD700] bg-[#FFFDE7] text-[#B8860B] hover:bg-[#FFFDE7]/80 dark:border-[#FFD700] dark:bg-[#3A0251] dark:text-[#FFDAA8]",
+                // 工作：橙色系（与大盘工作组一致）
+                p.group === "工作" &&
+                  "border-[#CC704B] bg-[#FFDAA8] text-[#CC704B] hover:bg-[#FFDAA8]/80 dark:border-[#CC704B] dark:bg-[#3A0251] dark:text-[#FFDAA8]",
+                // 生活：紫色系（与大盘生活组一致）
+                p.group === "生活" &&
+                  "border-[#8B40B7] bg-[#E6E6FA] text-[#3A0251] hover:bg-[#E6E6FA]/80 dark:border-[#8B40B7] dark:bg-[#3A0251] dark:text-[#FFDAA8]"
               )}
               onClick={() => appendProjectName(p.name)}
             >
@@ -115,7 +121,7 @@ export function WBSInput({ projects, onImport }: WBSInputProps) {
         </div>
       )}
       {successCount !== null && (
-        <div className="flex items-center gap-2 rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-950/30 dark:text-green-300">
+        <div className="flex items-center gap-2 rounded-lg bg-[#E6E6FA] p-3 text-sm text-[#3A0251] dark:bg-[#3A0251] dark:text-[#FFDAA8]">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           已成功导入 {successCount} 条任务
         </div>

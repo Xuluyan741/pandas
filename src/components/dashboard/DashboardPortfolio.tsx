@@ -57,8 +57,11 @@ export function DashboardPortfolio({ projects, tasks, onRemoveProject }: Dashboa
         <div className="grid gap-4 sm:grid-cols-3">
           {/* 总进度 - 薰衣草紫底 + 深紫色进度条 */}
           <div className="rounded-xl p-5 shadow-sm" style={{ backgroundColor: LAVENDER }}>
-            <div className="text-xs text-gray-400 mb-2">总进度</div>
-            <div className="text-3xl mb-4 text-gray-900" style={{ fontWeight: 700 }}>
+            <div className="mb-2 text-xs text-gray-400">总进度</div>
+            <div
+              className="mb-4 text-3xl"
+              style={{ fontWeight: 700, color: DEEP_PURPLE }}
+            >
               {overall}%
             </div>
             <div className="w-full rounded-full bg-gray-100" style={{ height: 4 }}>
@@ -79,10 +82,13 @@ export function DashboardPortfolio({ projects, tasks, onRemoveProject }: Dashboa
             className="rounded-xl p-5 shadow-sm"
             style={{ backgroundColor: "#FFF8ED" }}
           >
-            <div className="text-xs mb-2" style={{ color: TODAY_DUE_COLOR, fontWeight: 600 }}>
+            <div className="mb-2 text-xs" style={{ color: TODAY_DUE_COLOR, fontWeight: 600 }}>
               今日到期
             </div>
-            <div className="text-3xl mb-3" style={{ fontWeight: 700, color: "#1a1040" }}>
+            <div
+              className="mb-3 text-3xl"
+              style={{ fontWeight: 700, color: TODAY_DUE_COLOR }}
+            >
               {todayDue.length}
             </div>
             {todayDue.length > 0 && (

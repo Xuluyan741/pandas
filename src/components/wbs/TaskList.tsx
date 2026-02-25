@@ -21,7 +21,7 @@ interface TaskListProps {
 const STATUS_STYLES: Record<TaskStatus, string> = {
   "To Do": "bg-violet-500/20 text-violet-300 border border-violet-500/30",
   "Doing": "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
-  "Done": "bg-green-500/20 text-green-300 border border-green-500/30",
+  "Done": "bg-[#3A0251]/40 text-[#E6E6FA] border border-[#8B40B7]/60",
 };
 
 /** 优先级样式映射 */
@@ -31,11 +31,11 @@ const PRIORITY_STYLES: Record<string, string> = {
   "低": "text-neutral-400 bg-neutral-500/10 border border-neutral-500/20",
 };
 
-/** 项目组颜色映射 */
+/** 项目组颜色映射（与大盘保持一致：创业=黄，工作=橙，生活=紫） */
 const GROUP_STYLES: Record<string, string> = {
-  "创业": "text-cyan-400",
-  "工作": "text-red-400",
-  "生活": "text-green-400",
+  "创业": "text-[#FFD700]",
+  "工作": "text-[#CC704B]",
+  "生活": "text-[#8B40B7]",
 };
 
 export function TaskList({
@@ -46,12 +46,13 @@ export function TaskList({
   statusFilter = "all",
 }: TaskListProps) {
   const filtered =
-    statusFilter === "all"
-      ? tasks
-      : tasks.filter((t) => t.status === statusFilter);
+    statusFilter === "all" ? tasks : tasks.filter((t) => t.status === statusFilter);
   const projectMap = new Map(projects.map((p) => [p.id, p]));
 
-  if (filtered.length === 0) {
+  // 按优先级 + 紧急程度 + 项目组对任务进行排序，保证列表更有层次感
+  const sorted = [...filtered].sort((a, b) => compareTasks(a, b, projectMap));
+
+  if (sorted.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center rounded-2xl bg-[rgb(15,5,40)]">
         <p className="text-sm text-violet-300/50">暂无任务</p>
@@ -61,7 +62,7 @@ export function TaskList({
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {filtered.map((task) => {
+      {sorted.map((task) => {
         const project = projectMap.get(task.projectId);
         const overdue = isOverdue(task);
         const dueToday = isDueToday(task);
@@ -172,4 +173,39 @@ function getEndDate(startDate: string, duration: number): string {
   const d = new Date(startDate);
   d.setDate(d.getDate() + duration - 1);
   return d.toISOString().slice(0, 10);
+}
+
+/** 任务排序：高优先级 → 逾期 / 今日到期 / 更早结束 → 项目组（创业/工作/生活） */
+function compareTasks(
+  a: Task,
+  b: Task,
+  projectMap: Map<string, Project>
+): number {
+  const PRIORITY_ORDER: Record<string, number> = { 高: 0, 中: 1, 低: 2 };
+  const GROUP_ORDER: Record<string, number> = { 创业: 0, 工作: 1, 生活: 2 };
+
+  const pa = PRIORITY_ORDER[a.priority] ?? 99;
+  const pb = PRIORITY_ORDER[b.priority] ?? 99;
+  if (pa !== pb) return pa - pb;
+
+  const overdueA = isOverdue(a);
+  const overdueB = isOverdue(b);
+  if (overdueA !== overdueB) return overdueA ? -1 : 1;
+
+  const dueTodayA = isDueToday(a);
+  const dueTodayB = isDueToday(b);
+  if (dueTodayA !== dueTodayB) return dueTodayA ? -1 : 1;
+
+  const endA = new Date(getEndDate(a.startDate, a.duration)).getTime();
+  const endB = new Date(getEndDate(b.startDate, b.duration)).getTime();
+  if (endA !== endB) return endA - endB;
+
+  const groupA = projectMap.get(a.projectId)?.group ?? "";
+  const groupB = projectMap.get(b.projectId)?.group ?? "";
+  const ga = GROUP_ORDER[groupA] ?? 99;
+  const gb = GROUP_ORDER[groupB] ?? 99;
+  if (ga !== gb) return ga - gb;
+
+  // 最后的兜底：按名称稳定排序，避免顺序抖动
+  return a.name.localeCompare(b.name, "zh-CN");
 }

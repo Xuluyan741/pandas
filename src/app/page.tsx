@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useStore } from "@/store/useStore";
 import { DashboardPortfolio, AIBreakthrough } from "@/components/dashboard";
-import { ProjectForm, WBSInput, TaskForm, TaskList } from "@/components/wbs";
+import { ProjectForm, WBSInput, TaskForm, TaskList, InputSection } from "@/components/wbs";
 import { GanttView } from "@/components/gantt";
 import { BackgroundGradientAnimation } from "@/components/ui/background-gradient-animation";
 import { GradientButton } from "@/components/ui/gradient-button";
@@ -70,7 +70,7 @@ export default function Home() {
   if (status === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-50">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+        <Loader2 className="h-8 w-8 animate-spin text-[#FF8C00]" />
       </div>
     );
   }
@@ -80,12 +80,14 @@ export default function Home() {
 
       {/* ── 演示模式横幅 ── */}
       {isDemo && (
-        <div className="flex items-center justify-center gap-3 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        <div className="flex items-center justify-center gap-3 bg-[#FFDAA8]/30 px-4 py-2.5 text-sm text-[#CC704B] dark:bg-[#3A0251]/60 dark:text-[#FFDAA8]">
           <FlaskConical className="h-4 w-4 shrink-0" />
-          <span>当前为<strong>演示模式</strong>，数据仅供预览，不会保存。</span>
+          <span>
+            当前为<strong>演示模式</strong>，数据仅供预览，不会保存。
+          </span>
           <a
             href="/login"
-            className="ml-1 rounded-lg bg-amber-500 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+            className="ml-1 rounded-lg bg-[#FF8C00] px-3 py-1 text-xs font-semibold text-white hover:bg-[#CC704B]"
           >
             注册 / 登录 →
           </a>
@@ -111,7 +113,7 @@ export default function Home() {
           {isDemo ? (
             <a
               href="/login"
-              className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
+              className="rounded-lg bg-[#FF8C00] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#CC704B]"
             >
               注册 / 登录
             </a>
@@ -164,7 +166,11 @@ export default function Home() {
         interactive
       >
         <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm">
-          <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${isDemo ? "bg-amber-400" : "bg-green-400"}`} />
+          <span
+            className={`h-1.5 w-1.5 rounded-full animate-pulse ${
+              isDemo ? "bg-[#FFDAA8]" : "bg-[#FFD700]"
+            }`}
+          />
           {isLoading
             ? "数据加载中…"
             : isDemo
@@ -215,6 +221,12 @@ export default function Home() {
 
             <section className="space-y-4">
               <SectionHeader icon={<ListTodo className="h-4 w-4" />} title="WBS 任务拆解与录入" />
+              <InputSection
+                onAnalyze={async (_text) => {
+                  // 这里预留给“自然语言 → 任务结构化并检测冲突”的 AI 解析逻辑
+                  // 当前实现仅完成语音转文字与输入框填充，具体解析逻辑复用你已有的实现
+                }}
+              />
               <ProjectForm onSubmit={({ name, group }) => addProject({ name, group })} />
               <WBSInput projects={projects} onImport={handleWBSImport} />
               {showTaskForm ? (
@@ -246,7 +258,7 @@ export default function Home() {
               <div className="mb-3 flex items-center justify-between">
                 <SectionHeader icon={<ListTodo className="h-4 w-4" />} title="任务列表" />
                 <select
-                  className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-amber-100 dark:border-neutral-700 dark:bg-neutral-800"
+                  className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#FFDAA8]/60 dark:border-neutral-700 dark:bg-neutral-800"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as "all" | "To Do" | "Doing" | "Done")}
                 >
@@ -281,9 +293,6 @@ function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }
     <div className="mb-3 flex items-center gap-2">
       <span
         className="flex h-7 w-7 items-center justify-center rounded-lg app-logo-icon text-white"
-        style={{
-          background: "linear-gradient(to bottom right, var(--brand-orange), var(--brand-orange-dark))",
-        }}
       >
         {icon}
       </span>

@@ -56,8 +56,9 @@ export default function LoginPage() {
       } else {
         router.replace("/");
       }
-    } catch {
-      setError("发生未知错误，请重试");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "发生未知错误，请重试";
+      setError(process.env.NODE_ENV === "development" ? msg : "网络或服务异常，请稍后重试");
     } finally {
       setLoading(false);
     }

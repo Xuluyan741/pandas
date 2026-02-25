@@ -8,7 +8,7 @@ import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
-import { db } from "./db";
+import { db, initDb } from "./db";
 
 type DbUser = {
   id: string;
@@ -53,6 +53,7 @@ export const authOptions: AuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials.password) return null;
 
+        await initDb();
         const r = await db.execute({
           sql: "SELECT * FROM users WHERE email = ?",
           args: [credentials.email],
@@ -82,6 +83,7 @@ export const authOptions: AuthOptions = {
   callbacks: {
     async signIn({ user, account, profile }) {
       if (account?.provider === "google" && user.email) {
+        await initDb();
         const r = await db.execute({
           sql: "SELECT id FROM users WHERE email = ?",
           args: [user.email],
@@ -110,6 +112,7 @@ export const authOptions: AuthOptions = {
       if (user?.id) {
         token.userId = user.id;
       } else if (account?.provider === "google" && token.email) {
+        await initDb();
         const r = await db.execute({
           sql: "SELECT id FROM users WHERE email = ?",
           args: [token.email],

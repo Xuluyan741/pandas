@@ -27,7 +27,7 @@ export const db = g.__libsql;
 /** 初始化表结构（幂等，IF NOT EXISTS） */
 export async function initDb() {
   await db.execute(
-    "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, image TEXT, password_hash TEXT, google_id TEXT, created_at TEXT DEFAULT (datetime('now','localtime')))"
+    "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, image TEXT, password_hash TEXT, google_id TEXT, created_at TEXT DEFAULT (datetime('now','localtime')), subscription_status TEXT, subscription_plan TEXT, subscription_end_date TEXT, stripe_customer_id TEXT)"
   );
   await db.execute(
     "CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, group_name TEXT NOT NULL, description TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
@@ -38,6 +38,22 @@ export async function initDb() {
   await db.execute(
     "CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now','localtime')))"
   );
+
+  /**
+   * 会员相关字段迁移（老库没有这些列时补齐）
+   * - 使用 PRAGMA table_info 查询现有列，缺啥补啥，保证多次调用幂等
+   */
+  const cols = await db.execute("PRAGMA table_info(users)");
+  const existing = (cols.rows as { name: string }[]).map((c) => c.name);
+  const addIfMissing = async (name: string) => {
+    if (!existing.includes(name)) {
+      await db.execute(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
+    }
+  };
+  await addIfMissing("subscription_status");
+  await addIfMissing("subscription_plan");
+  await addIfMissing("subscription_end_date");
+  await addIfMissing("stripe_customer_id");
 }
 
 // 启动时初始化（异步，不阻塞模块加载）
