@@ -6,8 +6,17 @@ import webPush from "web-push";
 const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const privateKey = process.env.VAPID_PRIVATE_KEY;
 
+// 仅当 VAPID 配置合法时才开启推送，避免构建阶段因配置错误直接报错
+let pushConfigured = false;
+
 if (publicKey && privateKey) {
-  webPush.setVapidDetails("mailto:support@example.com", publicKey, privateKey);
+  try {
+    webPush.setVapidDetails("mailto:support@example.com", publicKey, privateKey);
+    pushConfigured = true;
+  } catch (e) {
+    console.error("[push] invalid VAPID keys:", (e as Error).message);
+    pushConfigured = false;
+  }
 }
 
 export type PushSubscriptionRow = {
@@ -17,14 +26,14 @@ export type PushSubscriptionRow = {
 };
 
 export function isPushConfigured(): boolean {
-  return Boolean(publicKey && privateKey);
+  return pushConfigured;
 }
 
 export async function sendPushNotification(
   sub: PushSubscriptionRow,
   payload: { title: string; body: string; url?: string }
 ): Promise<boolean> {
-  if (!privateKey || !publicKey) return false;
+  if (!pushConfigured || !privateKey || !publicKey) return false;
   const subscription = {
     endpoint: sub.endpoint,
     keys: { p256dh: sub.p256dh, auth: sub.auth },
