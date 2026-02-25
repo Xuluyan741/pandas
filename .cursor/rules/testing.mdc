@@ -1,0 +1,36 @@
+---
+description: 测试规范：Vitest 单元测试 + Playwright E2E
+alwaysApply: true
+---
+
+# 测试规范
+
+## 测试命令
+
+```bash
+pnpm test        # Vitest 单元测试（或 npm test）
+pnpm test:watch  # 监听模式
+pnpm test:e2e    # Playwright E2E（需 localhost:3000 无占用）
+pnpm lint        # ESLint 检查
+```
+
+## 单元测试（Vitest）
+
+- 覆盖范围：业务逻辑、数据转换、工具函数（`src/lib/` 目录）
+- 测试文件：`src/**/__tests__/*.test.ts` 或 `*.spec.ts`
+- 修改 `wbs-parser.ts`、`progress.ts` 等 lib 时必须同步更新测试
+
+## E2E 测试（Playwright）
+
+- 位置：`e2e/` 目录
+- 覆盖路径：
+  - 首页加载
+  - 未登录重定向到 /login
+  - 邮箱注册 + 登录流程
+  - 添加项目 / 添加任务后持久化验证
+
+## CI 规则
+
+- 提交前 **必须** 通过 `npm test` 和 `npm run lint`
+- 新增功能同步补充对应测试，不允许测试变红合并
+- E2E 在 CI 中设 `CI=1` 自动启动 dev server

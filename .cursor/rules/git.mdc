@@ -1,0 +1,33 @@
+---
+description: Git 使用与提交约定
+alwaysApply: true
+---
+
+# Git 使用约定
+
+## 提交格式
+
+```
+feat: 简短描述     → 新功能
+fix: 简短描述      → 修复 bug
+chore: 简短描述    → 构建、配置、依赖
+test: 简短描述     → 测试相关
+refactor: 简短描述 → 重构（不改功能）
+docs: 简短描述     → 文档更新
+```
+
+## 规则
+
+- **禁止** 使用无意义的 "update"、"fix"、"修改" 等模糊提交信息
+- **每次提交对应一个逻辑改动**，便于 review 与回滚
+- **禁止提交** `.env.local`、`data/*.db`（已在 .gitignore 中）
+- 功能开发完成后在终端执行 git commit，保持历史可追溯
+
+## 示例
+
+```bash
+git add .
+git commit -m "feat: 添加 Google OAuth 登录与邮箱密码注册"
+git commit -m "fix: 修复 WBS 解析器中文项目名匹配空格问题"
+git commit -m "chore: 升级 next-auth 至 4.24.11"
+```

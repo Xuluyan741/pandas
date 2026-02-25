@@ -1,0 +1,310 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ─── 主题变量 ─────────────────────────────────── */
+:root {
+  /* 色卡橘色：活力橙、肉桂橘（导航/区块图标） */
+  --brand-orange: #FF8C00;
+  --brand-orange-dark: #CC704B;
+  --background: #ffffff;
+  --foreground: #171717;
+  --primary: 24 37% 16%;
+  --primary-foreground: 40 20% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --accent: 40 15% 95%;
+  --accent-foreground: 24 10% 10%;
+  --secondary: 40 15% 92%;
+  --secondary-foreground: 24 10% 10%;
+  --input: 40 10% 90%;
+  --ring: 24 37% 16%;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* BackgroundGradientAnimation 所需的 Tailwind 动画类 */
+  --animate-first:  moveVertical   30s ease            infinite;
+  --animate-second: moveInCircle   20s reverse         infinite;
+  --animate-third:  moveInCircle   40s linear          infinite;
+  --animate-fourth: moveHorizontal 40s ease            infinite;
+  --animate-fifth:  moveInCircle   20s ease            infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --primary: 40 20% 92%;
+    --primary-foreground: 24 37% 16%;
+    --accent: 24 10% 18%;
+    --accent-foreground: 40 15% 92%;
+    --secondary: 24 10% 15%;
+    --secondary-foreground: 40 15% 92%;
+    --input: 24 10% 18%;
+    --ring: 40 20% 80%;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* 导航/登录页 logo 图标：强制使用色卡橘色 */
+.app-logo-icon {
+  background: linear-gradient(to bottom right, var(--brand-orange), var(--brand-orange-dark)) !important;
+}
+
+/* ─── 渐变动画 Keyframes ───────────────────────── */
+@keyframes moveHorizontal {
+  0%   { transform: translateX(-50%) translateY(-10%); }
+  50%  { transform: translateX(50%)  translateY(10%);  }
+  100% { transform: translateX(-50%) translateY(-10%); }
+}
+@keyframes moveInCircle {
+  0%   { transform: rotate(0deg);   }
+  50%  { transform: rotate(180deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes moveVertical {
+  0%   { transform: translateY(-50%); }
+  50%  { transform: translateY(50%);  }
+  100% { transform: translateY(-50%); }
+}
+
+/* ─── GradientButton CSS 属性注册 ─────────────── */
+@layer base {
+  @property --pos-x          { syntax: '<percentage>'; initial-value: 11.14%;             inherits: false; }
+  @property --pos-y          { syntax: '<percentage>'; initial-value: 140%;               inherits: false; }
+  @property --spread-x       { syntax: '<percentage>'; initial-value: 150%;               inherits: false; }
+  @property --spread-y       { syntax: '<percentage>'; initial-value: 180.06%;            inherits: false; }
+  @property --color-1        { syntax: '<color>';      initial-value: #000;               inherits: false; }
+  @property --color-2        { syntax: '<color>';      initial-value: #08012c;            inherits: false; }
+  @property --color-3        { syntax: '<color>';      initial-value: #4e1e40;            inherits: false; }
+  @property --color-4        { syntax: '<color>';      initial-value: #70464e;            inherits: false; }
+  @property --color-5        { syntax: '<color>';      initial-value: #88394c;            inherits: false; }
+  @property --border-angle   { syntax: '<angle>';      initial-value: 20deg;              inherits: true;  }
+  @property --border-color-1 { syntax: '<color>';      initial-value: hsla(340,75%,60%,.2);  inherits: true;  }
+  @property --border-color-2 { syntax: '<color>';      initial-value: hsla(340,75%,40%,.75); inherits: true;  }
+  @property --stop-1         { syntax: '<percentage>'; initial-value: 37.35%;             inherits: false; }
+  @property --stop-2         { syntax: '<percentage>'; initial-value: 61.36%;             inherits: false; }
+  @property --stop-3         { syntax: '<percentage>'; initial-value: 78.42%;             inherits: false; }
+  @property --stop-4         { syntax: '<percentage>'; initial-value: 89.52%;             inherits: false; }
+  @property --stop-5         { syntax: '<percentage>'; initial-value: 100%;               inherits: false; }
+}
+
+/* ─── GradientButton 组件样式 ─────────────────── */
+@layer components {
+  .gradient-button {
+    @apply relative appearance-none cursor-pointer;
+    background: radial-gradient(
+      var(--spread-x) var(--spread-y) at var(--pos-x) var(--pos-y),
+      var(--color-1) var(--stop-1),
+      var(--color-2) var(--stop-2),
+      var(--color-3) var(--stop-3),
+      var(--color-4) var(--stop-4),
+      var(--color-5) var(--stop-5)
+    );
+    transition:
+      --pos-x .5s, --pos-y .5s, --spread-x .5s, --spread-y .5s,
+      --color-1 .5s, --color-2 .5s, --color-3 .5s, --color-4 .5s, --color-5 .5s,
+      --border-angle .5s, --border-color-1 .5s, --border-color-2 .5s,
+      --stop-1 .5s, --stop-2 .5s, --stop-3 .5s, --stop-4 .5s, --stop-5 .5s;
+  }
+  .gradient-button::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(var(--border-angle), var(--border-color-1), var(--border-color-2));
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  .gradient-button:hover {
+    --pos-x: 0%; --pos-y: 91.51%; --spread-x: 120.24%; --spread-y: 103.18%;
+    --color-1: #c96287; --color-2: #c66c64; --color-3: #cc7d23; --color-4: #37140a; --color-5: #000;
+    --border-angle: 190deg;
+    --border-color-1: hsla(340,78%,90%,.1); --border-color-2: hsla(340,75%,90%,.6);
+    --stop-1: 0%; --stop-2: 8.8%; --stop-3: 21.44%; --stop-4: 71.34%; --stop-5: 85.76%;
+  }
+  .gradient-button-variant {
+    --color-1: #000022; --color-2: #1f3f6d; --color-3: #469396; --color-4: #f1ffa5;
+    --border-angle: 200deg;
+    --border-color-1: hsla(320,75%,90%,.6); --border-color-2: hsla(320,50%,90%,.15);
+  }
+  .gradient-button-variant:hover {
+    --pos-x: 0%; --pos-y: 95.51%; --spread-x: 110.24%; --spread-y: 110.2%;
+    --color-1: #000020; --color-2: #f1ffa5; --color-3: #469396; --color-4: #1f3f6d; --color-5: #000;
+    --stop-1: 0%; --stop-2: 10%; --stop-3: 35.44%; --stop-4: 71.34%; --stop-5: 90.76%;
+    --border-angle: 210deg;
+    --border-color-1: hsla(320,75%,90%,.2); --border-color-2: hsla(320,50%,90%,.75);
+  }
+}
+
+/* ─── Halide 英雄区（3D 视差 + 颗粒）──────────────────────────────────── */
+.halide-hero-root {
+  --halide-bg: #0a0a0a;
+  --halide-silver: #e0e0e0;
+  --halide-accent: #ff3c00;
+  --halide-grain-opacity: 0.15;
+  position: relative;
+  background-color: var(--halide-bg);
+  color: var(--halide-silver);
+  min-height: 32rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.halide-hero-root .halide-grain {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  opacity: var(--halide-grain-opacity);
+}
+
+.halide-hero-root .halide-viewport {
+  perspective: 2000px;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.halide-hero-root .halide-canvas-3d {
+  position: relative;
+  width: 800px;
+  max-width: 100%;
+  height: 500px;
+  transform-style: preserve-3d;
+  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.halide-hero-root .halide-layer {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(224, 224, 224, 0.1);
+  background-size: cover;
+  background-position: center;
+  transition: transform 0.5s ease;
+}
+
+.halide-hero-root .halide-layer:nth-child(1) {
+  filter: grayscale(1) contrast(1.2) brightness(0.5);
+}
+.halide-hero-root .halide-layer:nth-child(2) {
+  filter: grayscale(1) contrast(1.1) brightness(0.7);
+  opacity: 0.6;
+  mix-blend-mode: screen;
+}
+.halide-hero-root .halide-layer:nth-child(3) {
+  filter: grayscale(1) contrast(1.3) brightness(0.8);
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+}
+
+.halide-hero-root .halide-contours {
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  top: -50%;
+  left: -50%;
+  background-image: repeating-radial-gradient(
+    circle at 50% 50%,
+    transparent 0,
+    transparent 40px,
+    rgba(255, 255, 255, 0.05) 41px,
+    transparent 42px
+  );
+  transform: translateZ(120px);
+  pointer-events: none;
+}
+
+.halide-hero-root .halide-interface-grid {
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  min-height: 28rem;
+  padding: 4rem 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+  pointer-events: none;
+}
+
+.halide-hero-root .halide-interface-grid > * {
+  pointer-events: auto;
+}
+
+.halide-hero-root .halide-hero-title {
+  grid-column: 1 / -1;
+  align-self: center;
+  font-size: clamp(2rem, 8vw, 4.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  mix-blend-mode: difference;
+  color: var(--halide-silver);
+}
+
+.halide-hero-root .halide-cta-button {
+  justify-self: end;
+  align-self: end;
+  background: var(--halide-silver);
+  color: var(--halide-bg);
+  padding: 0.75rem 1.5rem;
+  font-weight: 700;
+  clip-path: polygon(0 0, 100% 0, 100% 70%, 85% 100%, 0 100%);
+  transition: 0.3s;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.halide-hero-root .halide-cta-button:hover {
+  background: var(--halide-accent);
+  transform: translateY(-4px);
+}
+
+.halide-hero-root .halide-scroll-hint {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  width: 1px;
+  height: 60px;
+  background: linear-gradient(to bottom, var(--halide-silver), transparent);
+  animation: halide-flow 2s infinite ease-in-out;
+  z-index: 20;
+}
+
+@keyframes halide-flow {
+  0%, 100% { transform: scaleY(0); transform-origin: top; }
+  50% { transform: scaleY(1); transform-origin: top; }
+  51% { transform: scaleY(1); transform-origin: bottom; }
+}

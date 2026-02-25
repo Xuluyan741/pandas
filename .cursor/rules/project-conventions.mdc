@@ -1,0 +1,45 @@
+---
+description: 个人超级项目管理 Agent 的开发规范与自测要求
+alwaysApply: true
+---
+
+# 项目开发规范
+
+## 技术栈
+- Next.js 16 (App Router) + TypeScript strict
+- Tailwind CSS v4（无 tailwind.config.ts，通过 @import "tailwindcss" 引入）
+- Zustand v5 + persist（LocalStorage，key: `super-project-agent-storage`）
+- 全部组件均为 `"use client"`，不引入 Server Components
+
+## 文件结构规则
+```
+src/
+  app/          # 页面（page.tsx = 主页）
+  components/
+    dashboard/  # 大盘组件（DashboardPortfolio、AIBreakthrough）
+    wbs/        # 录入组件（ProjectForm、TaskForm、WBSInput、TaskList）
+    gantt/      # 甘特图（GanttView，通过 CDN 加载 frappe-gantt）
+  lib/          # 工具：utils.ts / progress.ts / wbs-parser.ts
+  store/        # useStore.ts（Zustand）
+  types/        # index.ts（Project、Task、...）
+```
+
+## 必须遵守
+1. 关键函数必须有**中文注释**说明用途
+2. 所有组件用 Tailwind 原子类，**不引入额外 CSS 文件**（frappe-gantt CSS 通过 CDN `<link>` 引入）
+3. **禁止**在组件内直接导入 `frappe-gantt` npm 包（会触发 SCSS 编译错误），只能通过 CDN Script 加载
+4. 修改 Store 后确认 `partialize` 和 `merge` 函数覆盖新字段
+
+## 自测清单（每次修改后自查）
+- [ ] 添加项目后，大盘三组卡片中该组**显示项目名称和进度**
+- [ ] WBS 批量录入显示**已有项目名 chip**，可点击插入
+- [ ] 导入失败时显示**红色错误**，成功时显示**绿色确认**
+- [ ] 任务列表逾期行高亮为**红色背景**，今日到期为**黄色背景**
+- [ ] 甘特图在有任务时正常渲染（需联网加载 CDN）
+
+## 数据类型速查
+```ts
+ProjectGroup = "创业" | "工作" | "生活"
+TaskStatus   = "To Do" | "Doing" | "Done"
+TaskPriority = "高" | "中" | "低"
+```
