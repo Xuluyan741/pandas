@@ -66,6 +66,18 @@ TURSO_AUTH_TOKEN=你的 Auth Token
 | `GOOGLE_CLIENT_SECRET` | Google OAuth 客户端密钥 | 同上 |
 | `NEXT_PUBLIC_GOOGLE_ENABLED` | 是否显示 Google 登录 | `true` |
 
+**各变量填写说明：**
+
+| 变量名 | 填什么 |
+|--------|--------|
+| `NEXTAUTH_SECRET` | 终端执行 `openssl rand -base64 32`，把输出整段复制进去（生产环境用新的，不要和本地相同） |
+| `NEXTAUTH_URL` | 部署后的访问地址：先随便填 `https://super-project-agent.vercel.app`，部署完成若 Vercel 给了不同域名，再改为此域名（无末尾斜杠） |
+| `TURSO_DATABASE_URL` | 与本地 `.env.local` 里一致，即 `libsql://super-project-agent-xuluyan.aws-ap-northeast-1.turso.io` |
+| `TURSO_AUTH_TOKEN` | 与本地 `.env.local` 里一致，或运行 `turso db tokens create super-project-agent` 新生成一个填进去 |
+| `GOOGLE_CLIENT_ID` | 与本地一致，即 Google Cloud Console 里 OAuth 客户端的「客户端 ID」 |
+| `GOOGLE_CLIENT_SECRET` | 与本地一致，即同一 OAuth 客户端的「客户端密钥」 |
+| `NEXT_PUBLIC_GOOGLE_ENABLED` | 需要 Google 登录填 `true`，不需要填 `false` |
+
 部署后首次访问会执行建表（`initDb`），无需手动迁移。
 
 ---
