@@ -96,7 +96,7 @@ export default function LoginPage() {
             <Target className="h-7 w-7 text-white" />
           </div>
           <h1 className="mt-2 text-2xl font-bold text-neutral-900 dark:text-white">
-            超级项目管理 Agent
+            小熊猫 · 智能日程伙伴
           </h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             掌控你的每一个目标，多线程无忧

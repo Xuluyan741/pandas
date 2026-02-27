@@ -6,7 +6,7 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 import type { Task, Project } from "@/types";
 import { getTaskEndDate } from "@/lib/progress";
-// @ts-ignore - frappe-gantt has no type declarations
+// @ts-expect-error - frappe-gantt has no type declarations
 import Gantt from "frappe-gantt";
 
 interface GanttViewProps {
@@ -67,6 +67,7 @@ export function GanttView({ tasks, projects }: GanttViewProps) {
         popup_trigger: "click",
         readonly: true,
       });
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(null);
     } catch (err) {
       console.error("Failed to initialize Gantt:", err);

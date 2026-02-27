@@ -24,13 +24,15 @@ export async function GET() {
     const n = Number(v);
     return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
   }
-  return NextResponse.json(
-    rows.map((t) => ({
-      id: t.id,
-      projectId: t.project_id,
-      name: t.name,
-      startDate: t.start_date,
-      duration: Number(t.duration) || 1,
+    return NextResponse.json(
+      rows.map((t) => ({
+        id: t.id,
+        projectId: t.project_id,
+        name: t.name,
+        startDate: t.start_date,
+        startTime: t.start_time || undefined,
+        endTime: t.end_time || undefined,
+        duration: Number(t.duration) || 1,
       dependencies: JSON.parse((t.dependencies as string) ?? "[]"),
       status: t.status,
       priority: t.priority,
@@ -52,16 +54,16 @@ export async function POST(req: NextRequest) {
 
   await db.execute({
     sql: `
-      INSERT INTO tasks (id, user_id, project_id, name, start_date, duration, dependencies, status, priority, is_recurring, progress, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, user_id, project_id, name, start_date, start_time, end_time, duration, dependencies, status, priority, is_recurring, progress, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name, start_date = excluded.start_date, duration = excluded.duration,
+        name = excluded.name, start_date = excluded.start_date, start_time = excluded.start_time, end_time = excluded.end_time, duration = excluded.duration,
         dependencies = excluded.dependencies, status = excluded.status, priority = excluded.priority,
         is_recurring = excluded.is_recurring, progress = excluded.progress, updated_at = excluded.updated_at
     `,
     args: [
       id, auth.userId, body.projectId, body.name,
-      body.startDate, body.duration ?? 1,
+      body.startDate, body.startTime || null, body.endTime || null, body.duration ?? 1,
       JSON.stringify(body.dependencies ?? []),
       body.status ?? "To Do", body.priority ?? "中",
       body.isRecurring ? 1 : 0, body.progress ?? 0,

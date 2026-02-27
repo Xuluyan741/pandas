@@ -33,6 +33,8 @@ export function TaskForm({ projects, initial, onSubmit, onCancel }: TaskFormProp
   const [startDate, setStartDate] = useState(
     initial ? toDateInputValue(initial.startDate) : new Date().toISOString().slice(0, 10)
   );
+  const [startTime, setStartTime] = useState(initial?.startTime ?? "");
+  const [endTime, setEndTime] = useState(initial?.endTime ?? "");
   const [duration, setDuration] = useState(initial?.duration ?? 1);
   const [dependencies, setDependencies] = useState(initial?.dependencies?.join(", ") ?? "");
   const [status, setStatus] = useState<TaskStatus>(initial?.status ?? "To Do");
@@ -50,6 +52,8 @@ export function TaskForm({ projects, initial, onSubmit, onCancel }: TaskFormProp
       name,
       projectId,
       startDate,
+      startTime: startTime || undefined,
+      endTime: endTime || undefined,
       duration: Math.max(1, duration),
       dependencies: depIds,
       status,
@@ -89,7 +93,7 @@ export function TaskForm({ projects, initial, onSubmit, onCancel }: TaskFormProp
           </select>
         </label>
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-4">
         <label className="flex flex-col gap-1 text-sm font-medium">
           开始日期
           <input
@@ -97,6 +101,24 @@ export function TaskForm({ projects, initial, onSubmit, onCancel }: TaskFormProp
             className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium">
+          开始时间
+          <input
+            type="time"
+            className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm font-medium">
+          结束时间（可选）
+          <input
+            type="time"
+            className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
           />
         </label>
         <label className="flex flex-col gap-1 text-sm font-medium">
@@ -109,6 +131,8 @@ export function TaskForm({ projects, initial, onSubmit, onCancel }: TaskFormProp
             onChange={(e) => setDuration(Number(e.target.value) || 1)}
           />
         </label>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm font-medium">
           状态
           <select
@@ -121,8 +145,6 @@ export function TaskForm({ projects, initial, onSubmit, onCancel }: TaskFormProp
             ))}
           </select>
         </label>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm font-medium">
           依赖任务 ID（多个用逗号分隔）
           <input

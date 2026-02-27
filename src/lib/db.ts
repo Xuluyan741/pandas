@@ -38,6 +38,9 @@ export async function initDb() {
   await db.execute(
     "CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now','localtime')))"
   );
+  await db.execute(
+    "CREATE TABLE IF NOT EXISTS ai_usage (user_id TEXT NOT NULL, kind TEXT NOT NULL, period TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, kind, period))"
+  );
 
   /**
    * 会员相关字段迁移（老库没有这些列时补齐）
@@ -54,6 +57,19 @@ export async function initDb() {
   await addIfMissing("subscription_plan");
   await addIfMissing("subscription_end_date");
   await addIfMissing("stripe_customer_id");
+
+  /**
+   * Tasks 表迁移
+   */
+  const taskCols = await db.execute("PRAGMA table_info(tasks)");
+  const existingTaskCols = (taskCols.rows as unknown as { name: string }[]).map((c) => c.name);
+  const addTaskColIfMissing = async (name: string) => {
+    if (!existingTaskCols.includes(name)) {
+      await db.execute(`ALTER TABLE tasks ADD COLUMN ${name} TEXT`);
+    }
+  };
+  await addTaskColIfMissing("start_time");
+  await addTaskColIfMissing("end_time");
 }
 
 // 启动时初始化（异步，不阻塞模块加载）

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 const LOCAL_STT_URL = "http://localhost:8000/transcribe";
 
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe";
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com";
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -14,6 +18,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 若配置了 OpenAI API，则优先走云端转写（线上 Vercel 场景）
+    if (OPENAI_API_KEY) {
+      const openaiForm = new FormData();
+      const audioFile = file instanceof Blob ? file : new Blob([file as unknown as BlobPart], { type: "audio/webm" });
+      openaiForm.append("file", audioFile, "audio.webm");
+      openaiForm.append("model", OPENAI_TRANSCRIBE_MODEL);
+      openaiForm.append("response_format", "json");
+      openaiForm.append("language", "zh");
+
+      const res = await fetch(`${OPENAI_BASE_URL}/v1/audio/transcriptions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: openaiForm,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.error("[whisper] OpenAI transcription failed:", res.status, res.statusText, text);
+        return NextResponse.json(
+          { error: "云端语音识别失败，请稍后再试。" },
+          { status: 502 },
+        );
+      }
+
+      const data = (await res.json()) as { text?: string };
+      return NextResponse.json({ text: data.text ?? "" });
+    }
+
+    // 本地开发：退回到 local_stt（需手动启动 Python 服务）
     const forward = new FormData();
     forward.append("file", file, "audio.webm");
 
@@ -26,7 +61,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error("[whisper] local STT service unreachable", err);
       return NextResponse.json(
-        { error: "本地语音服务未启动，请先启动本地小龙虾助手（local_stt）。" },
+        { error: "本地语音服务未启动，请先启动本地语音识别服务（local_stt）。" },
         { status: 503 },
       );
     }
@@ -41,7 +76,7 @@ export async function POST(req: NextRequest) {
       }
       console.error("[whisper] local STT error:", res.status, detail);
       return NextResponse.json(
-        { error: detail || "本地语音识别失败，请检查小龙虾助手服务。" },
+        { error: detail || "本地语音识别失败，请检查语音识别服务。" },
         { status: 502 },
       );
     }

@@ -1,18 +1,20 @@
 "use client";
 
 /**
- * 任务列表展示：Evervault 卡片网格，支持状态筛选、逾期/今日到期高亮、快速改状态
+ * 任务列表展示：Evervault 卡片网格，支持状态筛选、逾期/今日到期高亮、快速改状态与删除
  */
 import type { Task, Project, TaskStatus } from "@/types";
 import { isOverdue, isDueToday } from "@/lib/progress";
 import { cn } from "@/lib/utils";
 import { EvervaultCard } from "@/components/ui/evervault-card";
-import { Pencil, RefreshCw, Clock, Calendar } from "lucide-react";
+import { Pencil, RefreshCw, Clock, Calendar, Trash2 } from "lucide-react";
 
 interface TaskListProps {
   tasks: Task[];
   projects: Project[];
   onEdit?: (task: Task) => void;
+  /** 自由删除任务（不受状态限制，交由上层决定是否二次确认） */
+  onDelete?: (taskId: string) => void;
   onStatusChange?: (taskId: string, status: TaskStatus) => void;
   statusFilter?: TaskStatus | "all";
 }
@@ -42,6 +44,7 @@ export function TaskList({
   tasks,
   projects,
   onEdit,
+  onDelete,
   onStatusChange,
   statusFilter = "all",
 }: TaskListProps) {
@@ -117,7 +120,7 @@ export function TaskList({
                 </span>
               </div>
 
-              {/* 底部：状态选择 + 操作 */}
+              {/* 底部：状态选择 + 操作（编辑 / 删除） */}
               <div className="flex items-center justify-between pt-1">
                 <select
                   className={cn(
@@ -134,17 +137,28 @@ export function TaskList({
                   <option value="Doing" className="bg-neutral-900 text-white">Doing</option>
                   <option value="Done" className="bg-neutral-900 text-white">Done</option>
                 </select>
-
-                {onEdit && (
-                  <button
-                    type="button"
-                    onClick={() => onEdit(task)}
-                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-violet-400 hover:text-violet-200 hover:bg-violet-500/20 transition-all"
-                  >
-                    <Pencil className="h-3 w-3" />
-                    编辑
-                  </button>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {onEdit && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(task)}
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-violet-400 hover:text-violet-200 hover:bg-violet-500/20 transition-all"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      编辑
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(task.id)}
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-red-300 hover:text-red-100 hover:bg-red-500/20 transition-all"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      删除
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* 逾期 / 今日到期提示条 */}

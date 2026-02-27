@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -16,12 +16,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "个人超级项目管理 Agent",
-  description: "多线程任务与甘特图管理，创业/工作/生活项目集",
+  title: "小熊猫 · 智能日程伙伴",
+  description: "用对话管理你的创业、工作与生活，AI 帮你安排一切",
   manifest: "/manifest.webmanifest",
-  themeColor: "#b45309",
-  appleWebApp: { capable: true, title: "项目Agent" },
+  appleWebApp: { capable: true, title: "小熊猫" },
   icons: { apple: "/icons/icon-192.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#171717",
 };
 
 export default async function RootLayout({

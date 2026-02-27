@@ -9,7 +9,7 @@ export default function PricingPage() {
       <div className="mx-auto flex max-w-5xl flex-col gap-10 px-4 py-16">
         <div className="space-y-4 text-center">
           <p className="inline-flex items-center rounded-full border border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-300">
-            超级项目管理 Agent · 定价
+            小熊猫 · 定价
           </p>
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
             用专业项目管理思维，<span className="text-[#FF8C00]">掌控你的人生项目</span>

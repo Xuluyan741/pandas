@@ -42,7 +42,7 @@ export function InputSection({ onChangeText, onAnalyze }: InputSectionProps) {
       await onAnalyze(text);
     } catch (e) {
       console.error(e);
-      setError("AI 解析日程时出现问题，请稍后再试。");
+      setError(e instanceof Error ? e.message : "AI 解析日程时出现问题，请稍后再试。");
     } finally {
       setAnalyzing(false);
     }
@@ -56,7 +56,7 @@ export function InputSection({ onChangeText, onAnalyze }: InputSectionProps) {
             自然语言创建任务
           </span>
           <span className="text-xs text-neutral-400 dark:text-neutral-500">
-            例如：“明天上午 10 点开周会，2 小时，高优先级”
+            例如：“在【工作项目】中，明天上午 10 点开周会，2 小时，高优先级”
           </span>
         </div>
       </div>

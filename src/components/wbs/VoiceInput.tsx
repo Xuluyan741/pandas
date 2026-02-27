@@ -131,7 +131,7 @@ export function VoiceInput({ onTextReady }: VoiceInputProps) {
       recorder.start();
       mediaRecorderRef.current = recorder;
       setPhase("listening");
-      setHint("小龙虾正在听… 再次点击停止录音。");
+      setHint("小熊猫正在听… 再次点击停止录音。");
     } catch (e) {
       console.error(e);
       let message = "无法访问麦克风，请检查设备设置。";

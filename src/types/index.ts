@@ -39,6 +39,10 @@ export interface Task {
   projectId: string;
   /** 开始日期 YYYY-MM-DD */
   startDate: string;
+  /** 开始时间 HH:mm（可选，无时间则是全天任务） */
+  startTime?: string;
+  /** 结束时间 HH:mm（可选） */
+  endTime?: string;
   /** 预计工期（天数） */
   duration: number;
   /** 依赖的前置任务 ID 列表，用于甘特图连线与关键路径 */
