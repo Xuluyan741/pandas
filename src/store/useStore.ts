@@ -3,9 +3,10 @@
  * - 乐观更新：本地状态立即更新，后台异步写入数据库 API
  * - loadFromServer：登录后从 /api/projects + /api/tasks 加载用户数据
  * - 移除了 localStorage persist（数据持久化改由服务器 SQLite 负责）
+ * - goals: 长期目标管理（PRD Phase 6）
  */
 import { create } from "zustand";
-import type { Project, Task } from "@/types";
+import type { Project, Task, LongTermGoal } from "@/types";
 
 function genId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -14,7 +15,7 @@ const now = () => new Date().toISOString();
 
 /** 静默调用 API（乐观更新，失败仅打印不回滚；演示模式下直接跳过） */
 async function apiCall(url: string, options: RequestInit) {
-  if (useStore.getState().demoMode) return; // 演示模式不请求服务器
+  if (useStore.getState().demoMode) return;
   try {
     const res = await fetch(url, {
       ...options,
@@ -29,10 +30,10 @@ async function apiCall(url: string, options: RequestInit) {
 interface ProjectTaskStore {
   projects: Project[];
   tasks: Task[];
+  goals: LongTermGoal[];
   isLoading: boolean;
   demoMode: boolean;
 
-  /** 从服务器加载当前用户全量数据（登录后调用一次） */
   loadFromServer: () => Promise<void>;
 
   addProject:    (project: Omit<Project, "id" | "createdAt" | "updatedAt">) => void;
@@ -43,6 +44,13 @@ interface ProjectTaskStore {
   updateTask: (id: string, patch: Partial<Task>) => void;
   removeTask: (id: string) => void;
 
+  /** 添加长期目标 */
+  addGoal: (goal: Omit<LongTermGoal, "id" | "createdAt">) => void;
+  /** 更新长期目标（暂停、恢复、完成） */
+  updateGoal: (id: string, patch: Partial<LongTermGoal>) => void;
+  /** 移除长期目标（同时移除关联子任务） */
+  removeGoal: (id: string) => void;
+
   setProjects: (projects: Project[]) => void;
   setTasks:    (tasks: Task[]) => void;
 }
@@ -50,6 +58,7 @@ interface ProjectTaskStore {
 export const useStore = create<ProjectTaskStore>()((set, get) => ({
   projects: [],
   tasks:    [],
+  goals:    [],
   isLoading: false,
   demoMode: false,
 
@@ -130,6 +139,25 @@ export const useStore = create<ProjectTaskStore>()((set, get) => ({
   removeTask: (id) => {
     set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
     apiCall(`/api/tasks/${id}`, { method: "DELETE" });
+  },
+
+  // ── 长期目标 ──────────────────────────────────────
+  addGoal: (goal) => {
+    const g: LongTermGoal = { ...goal, id: genId(), createdAt: now() };
+    set((s) => ({ goals: [...s.goals, g] }));
+  },
+
+  updateGoal: (id, patch) => {
+    set((s) => ({
+      goals: s.goals.map((g) => (g.id === id ? { ...g, ...patch } : g)),
+    }));
+  },
+
+  removeGoal: (id) => {
+    set((s) => ({
+      goals: s.goals.filter((g) => g.id !== id),
+      tasks: s.tasks.filter((t) => t.parentGoalId !== id),
+    }));
   },
 
   setProjects: (projects) => set({ projects }),

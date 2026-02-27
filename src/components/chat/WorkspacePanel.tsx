@@ -9,6 +9,7 @@ import { useState } from "react";
 import { X, LayoutGrid, Plus, ListTodo, BarChart3, FolderPlus, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DashboardPortfolio, AIBreakthrough } from "@/components/dashboard";
+import { GoalManager } from "@/components/dashboard/GoalManager";
 import { ProjectForm, WBSInput, TaskForm, TaskList } from "@/components/wbs";
 import { GanttView } from "@/components/gantt";
 import { CalendarView } from "@/components/calendar";
@@ -142,6 +143,7 @@ export function WorkspacePanel({
           {activeTab === "dashboard" && (
             <div className="space-y-6">
               <DashboardPortfolio projects={projects} tasks={tasks} onRemoveProject={onRemoveProject} />
+              <GoalManager />
               <AIBreakthrough tasks={tasks} projects={projects} />
             </div>
           )}

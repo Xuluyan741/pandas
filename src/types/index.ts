@@ -14,6 +14,11 @@ export type TaskStatus = "To Do" | "Doing" | "Done";
 export type TaskPriority = "高" | "中" | "低";
 
 /**
+ * 长期目标类别（PRD Phase 6）
+ */
+export type GoalCategory = "exam" | "fitness" | "project" | "travel" | "custom";
+
+/**
  * 项目实体
  */
 export interface Project {
@@ -53,10 +58,28 @@ export interface Task {
   isRecurring?: boolean;
   /** 完成百分比 0-100，用于进度计算 */
   progress?: number;
+  /** 关联的长期目标 ID（由长期目标管家生成的子任务会填此字段） */
+  parentGoalId?: string;
+  /** 推荐资料链接（长期目标管家附带的学习/参考资源） */
+  resourceUrl?: string;
   /** 创建时间 */
   createdAt: string;
   /** 最后更新 */
   updatedAt: string;
+}
+
+/**
+ * 长期目标实体（PRD Phase 6 — 存储在前端 store 中）
+ */
+export interface LongTermGoal {
+  id: string;
+  title: string;
+  deadline: string;
+  category: GoalCategory;
+  /** 目标当前状态 */
+  status: "active" | "paused" | "completed";
+  /** 创建时间 */
+  createdAt: string;
 }
 
 /**
@@ -65,6 +88,7 @@ export interface Task {
 export interface PersistedState {
   projects: Project[];
   tasks: Task[];
+  goals: LongTermGoal[];
   /** 数据版本，便于迁移 */
   version: number;
 }

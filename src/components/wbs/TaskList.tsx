@@ -7,7 +7,7 @@ import type { Task, Project, TaskStatus } from "@/types";
 import { isOverdue, isDueToday } from "@/lib/progress";
 import { cn } from "@/lib/utils";
 import { EvervaultCard } from "@/components/ui/evervault-card";
-import { Pencil, RefreshCw, Clock, Calendar, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Clock, Calendar, Trash2, Target, ExternalLink } from "lucide-react";
 
 interface TaskListProps {
   tasks: Task[];
@@ -86,6 +86,12 @@ export function TaskList({
                       循环
                     </span>
                   )}
+                  {task.parentGoalId && (
+                    <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/20 px-1.5 py-0.5 text-[10px] text-orange-300 border border-orange-500/30">
+                      <Target className="h-2.5 w-2.5" />
+                      长期目标
+                    </span>
+                  )}
                 </div>
                 {/* 优先级徽章 */}
                 <span
@@ -119,6 +125,19 @@ export function TaskList({
                   {task.duration} 天 → {endDate}
                 </span>
               </div>
+
+              {/* 资料链接（长期目标子任务） */}
+              {task.resourceUrl && (
+                <a
+                  href={task.resourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  参考资料
+                </a>
+              )}
 
               {/* 底部：状态选择 + 操作（编辑 / 删除） */}
               <div className="flex items-center justify-between pt-1">

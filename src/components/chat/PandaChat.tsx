@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Mic, MicOff, Loader2, AlertTriangle, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Project, Task } from "@/types";
+import type { Project, Task, GoalCategory } from "@/types";
 
 type NewTaskParams = {
   name: string;
@@ -20,6 +20,8 @@ type NewTaskParams = {
   status: "To Do";
   priority: "高" | "中" | "低";
   isRecurring?: boolean;
+  parentGoalId?: string;
+  resourceUrl?: string;
 };
 
 type AgentLog = {
@@ -65,6 +67,25 @@ interface AgentReplyPayload {
     url: string;
     riskLevel: "low" | "medium" | "high";
   };
+  goalPlan?: {
+    goalId?: string;
+    title: string;
+    deadline: string;
+    category?: GoalCategory;
+    preview: Array<{
+      name: string;
+      startDate: string;
+      duration: number;
+      priority: "高" | "中" | "低";
+      resourceUrl?: string;
+    }>;
+    resources?: Array<{
+      title: string;
+      url: string;
+      summary: string;
+      type?: string;
+    }>;
+  };
 }
 
 interface Message {
@@ -93,6 +114,8 @@ interface Message {
     url: string;
     riskLevel: "low" | "medium" | "high";
   };
+  /** 长期目标规划预览（如五一韩国旅游准备步骤） */
+  goalPlan?: AgentReplyPayload["goalPlan"];
 }
 
 interface PandaChatProps {
@@ -252,6 +275,75 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
     return useStore.getState().projects;
   }, [projects, addProject]);
 
+  /**
+   * 将长期目标规划预览写入日程，同时创建 Goal 实体，子任务带 parentGoalId 和 resourceUrl
+   */
+  const handleApplyGoalPlan = useCallback(
+    async (plan: NonNullable<AgentReplyPayload["goalPlan"]>) => {
+      const title = plan.title.trim() || "长期目标";
+      const { useStore } = await import("@/store/useStore");
+      let currentProjects = useStore.getState().projects;
+
+      let project =
+        currentProjects.find((p) => p.name.trim() === title) ??
+        currentProjects.find((p) => p.name.includes(title));
+
+      if (!project) {
+        addProject({
+          name: title,
+          group: "生活",
+          description: "小熊猫为你创建的长期目标项目",
+        });
+        currentProjects = useStore.getState().projects;
+        project =
+          currentProjects.find((p) => p.name.trim() === title) ??
+          currentProjects.find((p) => p.name.includes(title));
+      }
+
+      if (!project) return;
+
+      // 创建 Goal 实体
+      const goalId = plan.goalId || `goal-${Date.now()}`;
+      useStore.getState().addGoal({
+        title,
+        deadline: plan.deadline,
+        category: plan.category || "custom",
+        status: "active",
+      });
+
+      // 获取刚创建的 goal 的实际 id（由 store 生成）
+      const createdGoals = useStore.getState().goals;
+      const actualGoalId = createdGoals[createdGoals.length - 1]?.id || goalId;
+
+      plan.preview.forEach((g) => {
+        addTask({
+          name: g.name,
+          projectId: project!.id,
+          startDate: g.startDate,
+          duration: g.duration,
+          dependencies: [],
+          status: "To Do",
+          priority: g.priority,
+          isRecurring: false,
+          parentGoalId: actualGoalId,
+          resourceUrl: g.resourceUrl || undefined,
+        });
+      });
+
+      const taskCount = plan.preview.length;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `已创建「${title}」长期目标，${taskCount} 个准备步骤已写入日程。你可以在工作台 → 大盘中查看进度和管理目标。`,
+          timestamp: new Date(),
+        },
+      ]);
+    },
+    [addProject, addTask],
+  );
+
   /** 调用 AI 解析并创建任务，含冲突检测与智能项目匹配 */
   const processWithAI = useCallback(
     async (text: string) => {
@@ -390,6 +482,11 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                           ...payload.actionCard,
                         }
                       : undefined,
+                    goalPlan: payload.goalPlan
+                      ? {
+                          ...payload.goalPlan,
+                        }
+                      : undefined,
                   }
                 : null;
 
@@ -495,6 +592,11 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                         ...payload.actionCard,
                       }
                     : undefined,
+                  goalPlan: payload.goalPlan
+                    ? {
+                        ...payload.goalPlan,
+                      }
+                    : undefined,
                 };
                 setMessages((prev) => [...prev, msg]);
               }
@@ -524,6 +626,11 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                   content: payload.text ?? "",
                   timestamp: new Date(),
                   actionCard: { ...payload.actionCard },
+                  goalPlan: payload.goalPlan
+                    ? {
+                        ...payload.goalPlan,
+                      }
+                    : undefined,
                 };
                 setMessages((prev) => [...prev, msg]);
               } else if (baseAssistantMessage && !created && skipped.length === 0) {
@@ -676,6 +783,70 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                     </span>
                   )}
                   {msg.content}
+                  {/* 长期目标规划预览卡片 */}
+                  {msg.goalPlan && msg.role === "assistant" && msg.goalPlan.preview.length > 0 && (
+                    <div className="mt-3 rounded-xl border border-neutral-200 bg-white/90 p-3 text-xs text-neutral-700 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-neutral-200">
+                      <div className="mb-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                        长期目标 · {msg.goalPlan.title}
+                        <span className="ml-2 text-[10px] text-neutral-400">截止 {msg.goalPlan.deadline}</span>
+                      </div>
+                      <div className="mb-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+                        以下是准备计划（不会自动写入，确认后点击下方按钮）：
+                      </div>
+                      <ol className="mb-2 space-y-1.5 text-[11px]">
+                        {msg.goalPlan.preview.map((g, idx) => (
+                          <li key={`${g.startDate}-${idx}`} className="leading-snug">
+                            <span className="font-medium text-neutral-600 dark:text-neutral-200">
+                              {idx + 1}. {g.startDate}
+                            </span>
+                            <span className="mx-1 text-neutral-400">·</span>
+                            <span>{g.name}</span>
+                            <span className="ml-1 text-[10px] text-orange-500">
+                              （{g.priority}）
+                            </span>
+                            {g.resourceUrl && (
+                              <a
+                                href={g.resourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-1 text-[10px] text-blue-500 underline hover:text-blue-600"
+                              >
+                                参考资料
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                      {/* 推荐资料列表 */}
+                      {msg.goalPlan.resources && msg.goalPlan.resources.length > 0 && (
+                        <div className="mb-3 rounded-lg bg-neutral-50 p-2 dark:bg-neutral-800/50">
+                          <div className="mb-1 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
+                            推荐资料
+                          </div>
+                          {msg.goalPlan.resources.map((r, idx) => (
+                            <div key={idx} className="mb-1 text-[10px] leading-snug">
+                              <a
+                                href={r.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-500 underline hover:text-blue-600"
+                              >
+                                {r.title}
+                              </a>
+                              <span className="ml-1 text-neutral-400">{r.summary}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => msg.goalPlan && handleApplyGoalPlan(msg.goalPlan)}
+                        className="inline-flex items-center gap-1 rounded-full bg-neutral-900 px-3 py-1 text-[11px] font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+                      >
+                        一键写入到日历
+                      </button>
+                    </div>
+                  )}
                   {/* Deep Link 执行预览卡片 */}
                   {msg.actionCard && msg.role === "assistant" && msg.actionCard.url && (
                     <div className="mt-3 rounded-xl border border-neutral-200 bg-white/90 p-3 text-xs text-neutral-700 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-neutral-200">

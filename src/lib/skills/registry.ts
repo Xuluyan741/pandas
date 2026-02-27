@@ -3,8 +3,9 @@ import type { Task } from "@/types";
 import { detectConflicts, formatConflictsForLLM } from "@/lib/scheduler";
 import { buildDeepLink } from "@/lib/deep-links";
 import type { ActionHint } from "@/lib/ai/types";
-import { researchForGoal, type LongTermGoalCategory } from "@/lib/agent-research";
+import { researchForGoal } from "@/lib/agent-research";
 import { planGoal } from "@/lib/goal-planner";
+import type { GoalCategory } from "@/types";
 
 /**
  * 全局 Skill 注册表（内存级，适合当前单进程场景）
@@ -138,40 +139,33 @@ registerSkill<MessageDraftInput, MessageDraftOutput>({
 });
 
 /**
- * long_term_goal_planner：长期目标（考试/减肥/项目）规划助手
- * - 不直接写入任务，仅返回建议的子任务与推荐资料列表
+ * long_term_goal_planner：长期目标规划助手（PRD Phase 6）
+ * 返回 LLM 生成的子任务列表（含资料链接）和推荐资料
  */
 interface LongTermGoalPlannerInput {
   goalId: string;
   title: string;
   deadline: string;
-  category: LongTermGoalCategory;
+  category: GoalCategory;
   existingTasks: Task[];
 }
 
 interface LongTermGoalPlannerOutput {
-  plan: ReturnType<typeof planGoal>;
+  plan: Awaited<ReturnType<typeof planGoal>>;
   research: Awaited<ReturnType<typeof researchForGoal>>;
 }
 
 registerSkill<LongTermGoalPlannerInput, LongTermGoalPlannerOutput>({
   id: "long_term_goal_planner",
   name: "长期目标管家",
-  description: "为考试/减肥/项目等长期目标生成分阶段计划与推荐资料。",
+  description: "为考试/减肥/项目/旅行等长期目标生成分阶段计划与推荐资料。",
   requiredInputs: ["goalId", "title", "deadline", "category", "existingTasks"],
   riskLevel: "low",
   run: async ({ goalId, title, deadline, category, existingTasks }: LongTermGoalPlannerInput) => {
-    const plan = planGoal({
-      goalId,
-      title,
-      deadline,
-      category,
-      existingTasks,
-    });
-    const research = await researchForGoal({
-      goal: title,
-      category,
-    });
+    const [plan, research] = await Promise.all([
+      planGoal({ goalId, title, deadline, category, existingTasks }),
+      researchForGoal({ goal: title, category }),
+    ]);
     return { plan, research };
   },
 });

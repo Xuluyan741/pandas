@@ -3,11 +3,9 @@ import type { ActionHint } from "@/lib/ai/types";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canConsume, recordUsage } from "@/lib/quota";
+import { DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL } from "@/lib/models";
 
-// 使用 DeepSeek 文本模型做任务解析
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
-const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+import type { GoalCategory } from "@/types";
 
 /** 单条由大模型解析出的任务 */
 export type ParsedTask = {
@@ -29,11 +27,12 @@ export type ParsedTask = {
   isRecurring?: boolean;
   /** 额外备注信息（不直接入库，仅展示用） */
   note?: string;
-  /**
-   * 动作提示：用于后续 Deep Link 执行器
-   * 例如：打车 / 订餐 / 火车票 / 会议 / 购物 / none
-   */
+  /** 动作提示：用于后续 Deep Link 执行器 */
   actionHint?: ActionHint;
+  /** 若为长期目标则填 "long_term_goal"，普通任务不填或为 undefined */
+  type?: "long_term_goal";
+  /** 长期目标的类别（仅 type=long_term_goal 时有效） */
+  goalCategory?: GoalCategory;
 };
 
 type ParsedTasksResponse = {
@@ -114,7 +113,9 @@ export async function POST(req: NextRequest) {
     '      "priority": "高" | "中" | "低",',
     '      "isRecurring": 是否为循环任务（true/false）,',
     '      "note": "可选备注",',
-    '      "actionHint": "ride_hailing | food_delivery | train_ticket | meeting | shopping | none"',
+    '      "actionHint": "ride_hailing | food_delivery | train_ticket | meeting | shopping | none",',
+    '      "type": "long_term_goal（仅长期目标时填写，普通任务不填此字段）",',
+    '      "goalCategory": "exam | fitness | project | travel | custom（仅 type=long_term_goal 时填写）"',
     "    }",
     "  ]",
     "}",
@@ -124,6 +125,12 @@ export async function POST(req: NextRequest) {
     "2. 时间推算必须基于今天的日期，不要用模糊表述。",
     '3. 若无法识别任务，返回 {"tasks":[]}。',
     "4. 当用户明显提到打车/订餐/买票/线上会议/购物等场景时，请合理设置 actionHint；无法判断时使用 none。",
+    '5. 当识别到含明确 deadline 的长期目标时（关键词：考试、备考、减肥、健身、上线、交付、比赛、答辩、旅游、旅行、出国等），设置 "type": "long_term_goal"，并设置 "goalCategory" 为以下之一：',
+    '   - exam（考试/备考/答辩）',
+    '   - fitness（减肥/运动/健身）',
+    '   - project（工作/项目/上线/交付）',
+    '   - travel（旅游/旅行/出国/假期）',
+    '   - custom（其他长期目标）',
   ].join("\n");
 
   try {
