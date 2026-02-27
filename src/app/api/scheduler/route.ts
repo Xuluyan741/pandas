@@ -11,10 +11,10 @@ import {
   type ConflictResult,
 } from "@/lib/scheduler";
 import type { Task } from "@/types";
-
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
-const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { canConsume, recordUsage } from "@/lib/quota";
+import { DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL } from "@/lib/models";
 
 interface SchedulerRequest {
   newTask: Task;
@@ -63,6 +63,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Phase 5：对冲突消解建议也施加 Token 配额（视为 suggest 入口）
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id ?? "guest";
+  const now = new Date();
+  const quota = await canConsume(userId, "scheduler", now);
+  if (!quota.allowed) {
+    return NextResponse.json(
+      {
+        error:
+          "小熊猫今天为你生成冲突建议的次数已经用完啦，可以稍后再试，或者登录/升级为会员以获得更多配额。",
+      },
+      { status: 429 },
+    );
+  }
+
   /** 纯算法冲突检测 */
   const result: ConflictResult = detectConflicts(body.newTask, body.existingTasks);
 
@@ -90,6 +105,8 @@ export async function POST(req: NextRequest) {
   /** 如果有冲突且要求生成 LLM 建议 */
   if (result.hasConflict && body.generateAdvice !== false && DEEPSEEK_API_KEY) {
     try {
+      // 通过配额检查后再实际扣减
+      await recordUsage(userId, "scheduler", now);
       const advice = await generateLLMAdvice(result, body.newTask);
       if (advice) response.advice = advice;
     } catch (err) {

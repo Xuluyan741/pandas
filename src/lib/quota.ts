@@ -7,7 +7,7 @@ import { db } from "./db";
 
 export type QuotaPlan = "free" | "pro";
 
-export type UsageKind = "agent_chat" | "parse_tasks" | "agent_push";
+export type UsageKind = "agent_chat" | "parse_tasks" | "agent_push" | "scheduler";
 
 export interface QuotaInfo {
   plan: QuotaPlan;
