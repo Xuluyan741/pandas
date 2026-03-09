@@ -1,7 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/daily-push", "schedule": "0 8 * * *" },
-    { "path": "/api/cron/heartbeat", "schedule": "*/30 * * * *" },
-    { "path": "/api/cron/process-jobs", "schedule": "* * * * *" }
+    { "path": "/api/cron/heartbeat", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/process-jobs", "schedule": "0 10 * * *" }
   ]
 }
