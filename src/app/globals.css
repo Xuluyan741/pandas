@@ -325,3 +325,120 @@ body {
   50% { transform: scaleY(1); transform-origin: top; }
   51% { transform: scaleY(1); transform-origin: bottom; }
 }
+
+/* ─── AI Loader（黑白灰全屏生成中动效）──────────────────────────────── */
+@keyframes loaderCircle {
+  0% {
+    transform: rotate(90deg);
+    box-shadow:
+      0 6px 12px 0 #a3a3a3 inset,
+      0 12px 18px 0 #737373 inset,
+      0 36px 36px 0 #525252 inset,
+      0 0 3px 1.2px rgba(115, 115, 115, 0.35),
+      0 0 6px 1.8px rgba(82, 82, 82, 0.25);
+  }
+  50% {
+    transform: rotate(270deg);
+    box-shadow:
+      0 6px 12px 0 #d4d4d4 inset,
+      0 12px 6px 0 #a3a3a3 inset,
+      0 24px 36px 0 #737373 inset,
+      0 0 3px 1.2px rgba(115, 115, 115, 0.35),
+      0 0 6px 1.8px rgba(82, 82, 82, 0.25);
+  }
+  100% {
+    transform: rotate(450deg);
+    box-shadow:
+      0 6px 12px 0 #a3a3a3 inset,
+      0 12px 18px 0 #737373 inset,
+      0 36px 36px 0 #525252 inset,
+      0 0 3px 1.2px rgba(115, 115, 115, 0.35),
+      0 0 6px 1.8px rgba(82, 82, 82, 0.25);
+  }
+}
+
+@keyframes loaderLetter {
+  0%, 100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  40% {
+    opacity: 0.7;
+    transform: translateY(0);
+  }
+}
+
+.animate-loaderCircle {
+  animation: loaderCircle 5s linear infinite;
+}
+
+.animate-loaderLetter {
+  animation: loaderLetter 3s infinite;
+}
+
+/* 生成中三点动效（心理暗示） */
+@keyframes typingDot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+.animate-typing-dot-1 { animation: typingDot 1.2s ease-in-out infinite; }
+.animate-typing-dot-2 { animation: typingDot 1.2s ease-in-out 0.2s infinite; }
+.animate-typing-dot-3 { animation: typingDot 1.2s ease-in-out 0.4s infinite; }
+
+/* 深色模式：更深的灰阶 */
+@media (prefers-color-scheme: dark) {
+  .animate-loaderCircle {
+    box-shadow:
+      0 6px 12px 0 #404040 inset,
+      0 12px 18px 0 #525252 inset,
+      0 36px 36px 0 #737373 inset,
+      0 0 3px 1.2px rgba(82, 82, 82, 0.4),
+      0 0 6px 1.8px rgba(115, 115, 115, 0.25);
+  }
+}
+
+/* 黑底圆圈用：亮灰/白内阴影，保证在黑底上旋转圆环始终可见、永久有效 */
+@keyframes loaderCircleOnDark {
+  0% {
+    transform: rotate(90deg);
+    box-shadow:
+      0 6px 12px 0 #9ca3af inset,
+      0 12px 18px 0 #6b7280 inset,
+      0 36px 36px 0 #4b5563 inset,
+      0 0 4px 1.5px rgba(156, 163, 175, 0.5),
+      0 0 8px 2px rgba(107, 114, 128, 0.35);
+  }
+  50% {
+    transform: rotate(270deg);
+    box-shadow:
+      0 6px 12px 0 #d1d5db inset,
+      0 12px 6px 0 #9ca3af inset,
+      0 24px 36px 0 #6b7280 inset,
+      0 0 4px 1.5px rgba(156, 163, 175, 0.5),
+      0 0 8px 2px rgba(107, 114, 128, 0.35);
+  }
+  100% {
+    transform: rotate(450deg);
+    box-shadow:
+      0 6px 12px 0 #9ca3af inset,
+      0 12px 18px 0 #6b7280 inset,
+      0 36px 36px 0 #4b5563 inset,
+      0 0 4px 1.5px rgba(156, 163, 175, 0.5),
+      0 0 8px 2px rgba(107, 114, 128, 0.35);
+  }
+}
+
+.animate-loaderCircleOnDark {
+  animation: loaderCircleOnDark 5s linear infinite;
+}

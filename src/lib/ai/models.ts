@@ -57,6 +57,16 @@ export const MODELS = {
     outputPricePer1M: 0.28,
     maxOutputTokens: 4096,
   },
+
+  /** 本地 / 自建 vLLM（OpenAI 兼容） */
+  vllmLocal: {
+    id: process.env.VLLM_MODEL ?? "meta-llama/Llama-3.1-8B-Instruct",
+    provider: "vllm",
+    displayName: "vLLM 本地",
+    inputPricePer1M: 0,
+    outputPricePer1M: 0,
+    maxOutputTokens: 4096,
+  },
 } satisfies Record<string, ModelConfig>;
 
 /* ── 意图 → 模型映射表（可热更新） ── */

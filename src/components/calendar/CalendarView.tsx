@@ -236,7 +236,6 @@ export function CalendarView({ tasks, projects }: CalendarViewProps) {
                 const next = new Date(currentDate);
                 next.setMonth(month, 1);
                 setCurrentDate(next);
-                if (view === "year") setView("month");
               }}
             >
               {MONTH_LABELS.map((label, idx) => (

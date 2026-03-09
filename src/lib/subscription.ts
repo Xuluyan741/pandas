@@ -19,6 +19,9 @@ export async function getUserSubscription(userId: string) {
   };
 }
 
+/** 免费版项目数量上限 */
+const FREE_PROJECT_LIMIT = 10;
+
 /**
  * 检查用户是否超出免费额度
  * feature 用于扩展不同限制类型，目前支持：
@@ -38,8 +41,7 @@ export async function checkUsageLimit(userId: string, feature: "project_count"):
     });
     const row = (r.rows[0] || {}) as Record<string, unknown>;
     const count = Number(row.c ?? 0);
-    // 免费版最多 3 个项目
-    return count < 3;
+    return count < FREE_PROJECT_LIMIT;
   }
 
   return true;

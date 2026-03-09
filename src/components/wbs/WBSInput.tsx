@@ -121,7 +121,7 @@ export function WBSInput({ projects, onImport }: WBSInputProps) {
         </div>
       )}
       {successCount !== null && (
-        <div className="flex items-center gap-2 rounded-lg bg-[#E6E6FA] p-3 text-sm text-[#3A0251] dark:bg-[#3A0251] dark:text-[#FFDAA8]">
+        <div className="flex items-center gap-2 rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950/40 dark:text-green-300">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           已成功导入 {successCount} 条任务
         </div>

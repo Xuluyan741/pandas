@@ -18,6 +18,7 @@ export default function Home() {
   const {
     projects,
     tasks,
+    goals,
     isLoading,
     loadFromServer,
     addProject,
@@ -35,6 +36,15 @@ export default function Home() {
     } else if (status === "unauthenticated") {
       useStore.setState({ projects: DEMO_PROJECTS, tasks: DEMO_TASKS, demoMode: true });
     }
+  }, [status, loadFromServer]);
+
+  /** 主页右上角「刷新」图标触发重新拉取数据 */
+  useEffect(() => {
+    const refresh = () => {
+      if (status === "authenticated") loadFromServer();
+    };
+    window.addEventListener("refresh-data", refresh);
+    return () => window.removeEventListener("refresh-data", refresh);
   }, [status, loadFromServer]);
 
   /** WBS 批量导入处理 */
@@ -87,8 +97,9 @@ export default function Home() {
             <Loader2 className="h-6 w-6 animate-spin text-neutral-300" />
           </div>
         ) : (
-          <main className="flex-1 overflow-hidden">
+          <main className="flex flex-1 min-h-0">
             <PandaChat
+              variant="loaderFirst"
               projects={projects}
               tasks={tasks}
               addTask={(task) => addTask(task)}
@@ -103,6 +114,8 @@ export default function Home() {
       <WorkspacePanel
         projects={projects}
         tasks={tasks}
+        goals={goals}
+        hideFloatingButton={true}
         onRemoveProject={removeProject}
         onAddProject={addProject}
         onAddTask={(task) => addTask(task as Parameters<typeof addTask>[0])}

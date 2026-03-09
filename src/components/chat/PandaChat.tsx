@@ -5,8 +5,10 @@
  * 支持文本输入 + 语音输入 → AI 解析任务 → 智能项目匹配 → 冲突检测
  */
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Mic, MicOff, Loader2, AlertTriangle, Check, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { Send, Mic, MicOff, Loader2, AlertTriangle, Check, X, RefreshCw, Calendar } from "lucide-react";
+import { AILoader } from "@/components/ui/ai-loader";
+import { cn, randomId, splitContentWithUrls } from "@/lib/utils";
 import type { Project, Task, GoalCategory } from "@/types";
 
 type NewTaskParams = {
@@ -86,6 +88,10 @@ interface AgentReplyPayload {
       type?: string;
     }>;
   };
+  /** 本轮参考的社区技能（ClawHub 即用即删），供前端展示 */
+  communitySkills?: Array<{ slug: string; displayName: string }>;
+  /** PRD 第十一章：发现但未安装的社区技能，推荐用户安装 */
+  suggestInstall?: { slug: string; displayName: string };
 }
 
 interface Message {
@@ -116,6 +122,12 @@ interface Message {
   };
   /** 长期目标规划预览（如五一韩国旅游准备步骤） */
   goalPlan?: AgentReplyPayload["goalPlan"];
+  /** 本轮参考的社区技能（ClawHub），用于在气泡下展示 */
+  communitySkills?: Array<{ slug: string; displayName: string }>;
+  /** 推荐安装的社区技能（安装后下次可自动执行） */
+  suggestInstall?: { slug: string; displayName: string };
+  /** 用户已点击安装后置为 true，用于显示「已安装」 */
+  suggestInstallInstalled?: boolean;
 }
 
 interface PandaChatProps {
@@ -125,6 +137,8 @@ interface PandaChatProps {
   addTask: (task: NewTaskParams) => void;
   addProject: (project: { name: string; group: "创业" | "工作" | "生活"; description?: string }) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
+  /** 首屏为全屏「生成中」风格，无传统聊天框 */
+  variant?: "default" | "loaderFirst";
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -166,13 +180,17 @@ function findMatchingProject(projectName: string, projects: Project[]): Project 
   );
 }
 
-export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject, updateTask }: PandaChatProps) {
+export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject, updateTask, variant = "default" }: PandaChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
+  /** loaderFirst 下：是否已点击中央圆圈展开输入框，默认隐藏输入框 */
+  const [showInputOverlay, setShowInputOverlay] = useState(false);
+  /** 今日剩余额度（参考 ClawWork 改进：配额可视化） */
+  const [remainingToday, setRemainingToday] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -183,6 +201,23 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  /** 展开输入框后自动聚焦到输入框 */
+  useEffect(() => {
+    if (showInputOverlay && variant === "loaderFirst") {
+      inputRef.current?.focus();
+    }
+  }, [showInputOverlay, variant]);
+
+  /** 拉取今日剩余额度（挂载时与发送后刷新） */
+  const refreshRemaining = useCallback(() => {
+    fetch("/api/usage/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.today?.remaining != null && setRemainingToday(d.today.remaining));
+  }, []);
+  useEffect(() => {
+    refreshRemaining();
+  }, [refreshRemaining, messages.length]);
 
   /** 处理冲突确认：用户接受建议后执行调整并创建任务 */
   const handleConflictAccept = useCallback(
@@ -231,12 +266,23 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: randomId(),
           role: "assistant",
           content: "好的，已按建议调整日程并创建任务 ✓",
           timestamp: new Date(),
         },
       ]);
+      // 高价值行为：返还额度 + 写入偏好（策略复用）
+      fetch("/api/usage/reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "conflict_accepted" }),
+      }).catch(() => {});
+      fetch("/api/agent/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "preference:conflict_accept", value: "reschedule" }),
+      }).catch(() => {});
     },
     [addTask, updateTask],
   );
@@ -253,7 +299,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: randomId(),
           role: "assistant",
           content: "好的，已直接创建任务（保留现有日程不变）。",
           timestamp: new Date(),
@@ -263,20 +309,41 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
     [addTask],
   );
 
+  /** PRD 第十一章：用户确认安装社区技能 */
+  const handleInstallCommunitySkill = useCallback(
+    async (msgId: string, slug: string) => {
+      try {
+        const res = await fetch("/api/skills/community/install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "安装失败");
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId ? { ...m, suggestInstallInstalled: true } : m,
+          ),
+        );
+      } catch {
+        // 可在此加 toast；暂静默
+      }
+    },
+    [],
+  );
+
   /**
    * 确保至少有一个项目可用——如果没有项目则自动创建「日常」兜底项目
    * 返回可用的项目列表
    */
   const ensureProjectsAvailable = useCallback(async (): Promise<Project[]> => {
     if (projects.length > 0) return projects;
-    addProject({ name: "日常", group: "生活", description: "小熊猫自动创建的默认项目" });
-    // addProject 是同步乐观更新，直接从 store 拿最新状态
+    await addProject({ name: "日常", group: "生活", description: "小熊猫自动创建的默认项目" });
     const { useStore } = await import("@/store/useStore");
     return useStore.getState().projects;
   }, [projects, addProject]);
 
   /**
-   * 将长期目标规划预览写入日程，同时创建 Goal 实体，子任务带 parentGoalId 和 resourceUrl
+   * 将长期目标规划预览写入日程，同时持久化 Goal 到服务端（Phase 6），子任务带 parentGoalId 和 resourceUrl
    */
   const handleApplyGoalPlan = useCallback(
     async (plan: NonNullable<AgentReplyPayload["goalPlan"]>) => {
@@ -289,11 +356,23 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
         currentProjects.find((p) => p.name.includes(title));
 
       if (!project) {
-        addProject({
+        const result = await addProject({
           name: title,
-          group: "生活",
+          group: "创业",
           description: "小熊猫为你创建的长期目标项目",
         });
+        if (!result.ok) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: randomId(),
+              role: "assistant",
+              content: `无法创建项目「${title}」：${result.error ?? "项目数量已达免费版上限，请升级 Pro 或先在工作台移除部分项目。"}`,
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
         currentProjects = useStore.getState().projects;
         project =
           currentProjects.find((p) => p.name.trim() === title) ??
@@ -302,18 +381,34 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
 
       if (!project) return;
 
-      // 创建 Goal 实体
-      const goalId = plan.goalId || `goal-${Date.now()}`;
-      useStore.getState().addGoal({
-        title,
-        deadline: plan.deadline,
-        category: plan.category || "custom",
-        status: "active",
-      });
-
-      // 获取刚创建的 goal 的实际 id（由 store 生成）
-      const createdGoals = useStore.getState().goals;
-      const actualGoalId = createdGoals[createdGoals.length - 1]?.id || goalId;
+      // 持久化 Goal 到服务端（供 agent-push 监督推送用）
+      let actualGoalId = plan.goalId || "";
+      try {
+        const res = await fetch("/api/goals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            deadline: plan.deadline,
+            category: plan.category || "custom",
+          }),
+        });
+        if (res.ok) {
+          const created = (await res.json()) as { id: string; title: string; deadline: string; category: string; status: string; createdAt: string };
+          actualGoalId = created.id;
+          useStore.getState().setGoals([...useStore.getState().goals, { ...created, category: created.category as GoalCategory }]);
+        }
+      } catch {
+        actualGoalId = actualGoalId || `goal-${Date.now()}`;
+        useStore.getState().addGoal({
+          title,
+          deadline: plan.deadline,
+          category: plan.category || "custom",
+          status: "active",
+        });
+        const goals = useStore.getState().goals;
+        actualGoalId = goals[goals.length - 1]?.id || actualGoalId;
+      }
 
       plan.preview.forEach((g) => {
         addTask({
@@ -325,7 +420,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
           status: "To Do",
           priority: g.priority,
           isRecurring: false,
-          parentGoalId: actualGoalId,
+          parentGoalId: actualGoalId || undefined,
           resourceUrl: g.resourceUrl || undefined,
         });
       });
@@ -334,7 +429,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: randomId(),
           role: "assistant",
           content: `已创建「${title}」长期目标，${taskCount} 个准备步骤已写入日程。你可以在工作台 → 大盘中查看进度和管理目标。`,
           timestamp: new Date(),
@@ -349,7 +444,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
     async (text: string) => {
       setAgentLogs([]);
       const userMsg: Message = {
-        id: crypto.randomUUID(),
+        id: randomId(),
         role: "user",
         content: text,
         timestamp: new Date(),
@@ -402,6 +497,29 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
             }
             if (!dataLine) continue;
 
+            if (eventType === "skills_used") {
+              try {
+                const payload = JSON.parse(dataLine) as {
+                  skills?: Array<{ slug: string; displayName: string }>;
+                };
+                const skills = payload.skills ?? [];
+                if (skills.length > 0) {
+                  const names = skills.map((s) => s.displayName || s.slug).join("、");
+                  setAgentLogs((prev) => [
+                    ...prev,
+                    {
+                      id: randomId(),
+                      type: "thought",
+                      message: `本轮参考了 ${skills.length} 个社区技能：${names}`,
+                    },
+                  ].slice(-5));
+                }
+              } catch {
+                // 忽略解析错误
+              }
+              continue;
+            }
+
             if (eventType === "thought") {
               try {
                 const payload = JSON.parse(dataLine) as { step?: string; message?: string };
@@ -411,7 +529,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                     const next: AgentLog[] = [
                       ...prev,
                       {
-                        id: crypto.randomUUID(),
+                        id: randomId(),
                         type: "thought",
                         step: payload.step,
                         message,
@@ -433,14 +551,14 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                 setAgentLogs((prev) => {
                   const next: AgentLog[] = [
                     ...prev,
-                    { id: crypto.randomUUID(), type: "error", message: msgText },
+                    { id: randomId(), type: "error", message: msgText },
                   ];
                   return next.slice(-5);
                 });
                 setMessages((prev) => [
                   ...prev,
                   {
-                    id: crypto.randomUUID(),
+                    id: randomId(),
                     role: "assistant",
                     content: msgText,
                     timestamp: new Date(),
@@ -462,7 +580,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                 setMessages((prev) => [
                   ...prev,
                   {
-                    id: crypto.randomUUID(),
+                    id: randomId(),
                     role: "assistant",
                     content: dataLine,
                     timestamp: new Date(),
@@ -473,7 +591,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
 
               const baseAssistantMessage: Message | null = payload.text
                 ? {
-                    id: crypto.randomUUID(),
+                    id: randomId(),
                     role: "assistant",
                     content: payload.text ?? "",
                     timestamp: new Date(),
@@ -487,6 +605,10 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                           ...payload.goalPlan,
                         }
                       : undefined,
+                    communitySkills: payload.communitySkills?.length
+                      ? payload.communitySkills
+                      : undefined,
+                    suggestInstall: payload.suggestInstall,
                   }
                 : null;
 
@@ -549,7 +671,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                   setMessages((prev) => [
                     ...prev,
                     {
-                      id: crypto.randomUUID(),
+                      id: randomId(),
                       role: "assistant",
                       content: summary,
                       timestamp: new Date(),
@@ -558,6 +680,13 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                         pendingTask: taskParams,
                         adjustments: conflict.suggestions,
                       },
+                      actionCard: payload.actionCard
+                        ? { ...payload.actionCard }
+                        : undefined,
+                      communitySkills: payload.communitySkills?.length
+                        ? payload.communitySkills
+                        : undefined,
+                      suggestInstall: payload.suggestInstall,
                     },
                   ]);
                 } else {
@@ -583,7 +712,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                   replyText += "\n\n还有别的安排吗？随时告诉我。";
                 }
                 const msg: Message = {
-                  id: crypto.randomUUID(),
+                  id: randomId(),
                   role: "assistant",
                   content: replyText,
                   timestamp: new Date(),
@@ -597,6 +726,10 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                         ...payload.goalPlan,
                       }
                     : undefined,
+                  communitySkills: payload.communitySkills?.length
+                    ? payload.communitySkills
+                    : undefined,
+                  suggestInstall: payload.suggestInstall,
                 };
                 setMessages((prev) => [...prev, msg]);
               }
@@ -610,7 +743,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                 setMessages((prev) => [
                   ...prev,
                   {
-                    id: crypto.randomUUID(),
+                    id: randomId(),
                     role: "assistant",
                     content: skippedMsg,
                     timestamp: new Date(),
@@ -621,7 +754,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
               // 若存在 actionCard 且尚未随着其他回复发送，则追加一条包含动作预览的消息
               if (payload.actionCard && !created && skipped.length === 0 && !baseAssistantMessage) {
                 const msg: Message = {
-                  id: crypto.randomUUID(),
+                  id: randomId(),
                   role: "assistant",
                   content: payload.text ?? "",
                   timestamp: new Date(),
@@ -631,6 +764,10 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                         ...payload.goalPlan,
                       }
                     : undefined,
+                  communitySkills: payload.communitySkills?.length
+                    ? payload.communitySkills
+                    : undefined,
+                  suggestInstall: payload.suggestInstall,
                 };
                 setMessages((prev) => [...prev, msg]);
               } else if (baseAssistantMessage && !created && skipped.length === 0) {
@@ -642,12 +779,18 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
           }
         }
       } catch (e) {
+        const rawMessage = e instanceof Error ? e.message : "出了点问题，请稍后再试";
+        // 将浏览器/网络错误转为用户可读的友好提示
+        const friendlyMessage =
+          rawMessage === "Failed to fetch"
+            ? "网络请求失败：请检查是否已启动本地服务（如 pnpm dev）、网络是否正常，或稍后再试。"
+            : rawMessage;
         setMessages((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: randomId(),
             role: "assistant",
-            content: e instanceof Error ? e.message : "出了点问题，请稍后再试",
+            content: friendlyMessage,
             timestamp: new Date(),
           },
         ]);
@@ -714,7 +857,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
           setMessages((prev) => [
             ...prev,
             {
-              id: crypto.randomUUID(),
+              id: randomId(),
               role: "assistant",
               content: "语音识别出了点问题，请再试一次或直接打字告诉我",
               timestamp: new Date(),
@@ -739,9 +882,232 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
   };
 
   const isBusy = isLoading || isTranscribing;
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant");
+
+  /** 首屏：白底 + 中央灰白圈，点击圆圈展开输入 */
+  if (variant === "loaderFirst") {
+    const dayOfMonth = new Date().getDate();
+    return (
+      <div className="fixed inset-0 z-40 flex flex-col bg-gradient-to-b from-white via-neutral-50 to-neutral-100 dark:from-neutral-900 dark:via-neutral-800 dark:to-neutral-950">
+        {/* 右上角：黑/深灰图标（白底上可见） */}
+        <div className="absolute right-5 top-5 z-50 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("refresh-data"))}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800 text-white shadow-md transition hover:bg-neutral-700 dark:bg-neutral-600 dark:hover:bg-neutral-500"
+            title="刷新"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-workspace"))}
+            className="relative flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-md transition hover:bg-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+            title="工作台"
+          >
+            <Calendar className="h-4 w-4" />
+            <span className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded bg-white text-[10px] font-medium text-neutral-900 shadow">
+              {dayOfMonth}
+            </span>
+          </button>
+        </div>
+
+        {/* 生成中时屏幕中央三点动效（心理暗示） */}
+        {isLoading && (
+          <div className="pointer-events-none fixed inset-0 z-[45] flex items-center justify-center">
+            <div className="flex items-end gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-neutral-600 animate-typing-dot-1 dark:bg-neutral-400" />
+              <span className="h-2 w-2 rounded-full bg-neutral-600 animate-typing-dot-2 dark:bg-neutral-400" />
+              <span className="h-2 w-2 rounded-full bg-neutral-600 animate-typing-dot-3 dark:bg-neutral-400" />
+            </div>
+          </div>
+        )}
+
+        {/* 页面正中央：你提供的 ai-loader 样式（仅旋转圆环，无文字）可点击；展开后为输入条 */}
+        <div className="flex flex-1 flex-col items-center justify-center px-6">
+          {!showInputOverlay ? (
+            <button
+              type="button"
+              onClick={() => setShowInputOverlay(true)}
+              className="rounded-full cursor-pointer border-0 bg-neutral-100 p-0 shadow-xl focus:outline-none focus:ring-2 focus:ring-neutral-300 focus:ring-offset-2 focus:ring-offset-neutral-100 dark:bg-neutral-200 dark:focus:ring-offset-neutral-800"
+              aria-label="点击输入或说话"
+              title="点击输入或说话"
+            >
+              <AILoader
+                fullScreen={false}
+                size={180}
+                text=""
+                onLightBg
+              />
+            </button>
+          ) : (
+            <div className="flex w-full max-w-md items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-xl dark:border-neutral-600 dark:bg-neutral-800">
+              <button
+                type="button"
+                onClick={toggleRecording}
+                disabled={isBusy}
+                className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-700",
+                  isRecording && "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400",
+                )}
+                title={isRecording ? "停止录音" : "语音输入"}
+              >
+                {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </button>
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="点击输入或说话"
+                disabled={isBusy}
+                className="min-w-0 flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+              />
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!input.trim() || isBusy}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white transition hover:bg-neutral-800 disabled:opacity-40 dark:bg-neutral-200 dark:text-neutral-900 dark:hover:bg-neutral-300"
+                title="发送"
+              >
+                <Send className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInputOverlay(false)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-300"
+                title="收起"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 最后一条回复卡片（有消息时显示在底部，白底风格；含长期目标预览、参考资料、一键写入） */}
+        {lastAssistantMessage && (
+          <div className="relative z-[60] mx-4 mb-6 max-h-[40vh] overflow-y-auto rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-800 shadow-xl dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200">
+            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">🐾 小熊猫</span>
+            <div className="whitespace-pre-wrap">
+              {splitContentWithUrls(lastAssistantMessage.content).map((part, i) =>
+                typeof part === "string" ? (
+                  <span key={i}>{part}</span>
+                ) : (
+                  <a
+                    key={i}
+                    href={part.url.replace(/[.,;:)\]}>]+$/, "")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {part.url}
+                  </a>
+                )
+              )}
+            </div>
+            {lastAssistantMessage.conflictAction && !lastAssistantMessage.resolved && (
+              <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-600">
+                <button
+                  type="button"
+                  onClick={() => handleConflictAccept(lastAssistantMessage!.id, lastAssistantMessage!.conflictAction!)}
+                  className="flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800 dark:bg-neutral-200 dark:text-neutral-900 dark:hover:bg-neutral-300"
+                >
+                  <Check className="h-3 w-3" />
+                  好的
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConflictReject(lastAssistantMessage!.id, lastAssistantMessage!.conflictAction!)}
+                  className="flex items-center gap-1.5 rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+                >
+                  <X className="h-3 w-3" />
+                  暂不
+                </button>
+              </div>
+            )}
+            {/* 长期目标规划：预览、参考资料（可点击跳转）、一键写入到日历 */}
+            {lastAssistantMessage.goalPlan && lastAssistantMessage.goalPlan.preview.length > 0 && (
+              <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-600 dark:bg-neutral-900/50">
+                <div className="mb-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                  长期目标 · {lastAssistantMessage.goalPlan.title}
+                  <span className="ml-2 text-[10px]">截止 {lastAssistantMessage.goalPlan.deadline}</span>
+                </div>
+                <div className="mb-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+                  以下是准备计划（确认后点击「一键写入到日历」）：
+                </div>
+                <ol className="mb-2 space-y-1.5 text-[11px]">
+                  {lastAssistantMessage.goalPlan.preview.map((g, idx) => (
+                    <li key={`${g.startDate}-${idx}`} className="leading-snug">
+                      <span className="font-medium text-neutral-700 dark:text-neutral-200">
+                        {idx + 1}. {g.startDate}
+                      </span>
+                      <span className="mx-1 text-neutral-400">·</span>
+                      <span>{g.name}</span>
+                      <span className="ml-1 text-[10px] text-orange-500">（{g.priority}）</span>
+                      {g.resourceUrl && (
+                        <a
+                          href={g.resourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-[10px] text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          参考资料
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+                {lastAssistantMessage.goalPlan.resources && lastAssistantMessage.goalPlan.resources.length > 0 && (
+                  <div className="mb-3 rounded-lg bg-white p-2 dark:bg-neutral-800/50">
+                    <div className="mb-1 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">推荐资料</div>
+                    {lastAssistantMessage.goalPlan.resources.map((r, idx) => (
+                      <div key={idx} className="mb-1 text-[10px] leading-snug">
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {r.title}
+                        </a>
+                        <span className="ml-1 text-neutral-400">{r.summary}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => lastAssistantMessage!.goalPlan && handleApplyGoalPlan(lastAssistantMessage!.goalPlan)}
+                  className="inline-flex items-center gap-1 rounded-full bg-neutral-900 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-neutral-800 dark:bg-neutral-200 dark:text-neutral-900 dark:hover:bg-neutral-300"
+                >
+                  一键写入到日历
+                </button>
+              </div>
+            )}
+            {lastAssistantMessage.actionCard?.url && (
+              <div className="mt-3 border-t border-neutral-200 pt-3 dark:border-neutral-600">
+                <div className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{lastAssistantMessage.actionCard.title}</div>
+                <button
+                  type="button"
+                  onClick={() => window.open(lastAssistantMessage!.actionCard!.url, "_blank", "noopener,noreferrer")}
+                  className="rounded-full bg-neutral-900 px-3 py-1 text-[11px] font-medium text-white hover:bg-neutral-800 dark:bg-neutral-200 dark:text-neutral-900 dark:hover:bg-neutral-300"
+                >
+                  允许并打开
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col rounded-3xl border border-neutral-200 bg-white/80 shadow-lg backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900/80">
       {/* 对话区域 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 ? (
@@ -771,18 +1137,51 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                   )}
                 >
                   {msg.role === "assistant" && (
-                    <span className={cn(
-                      "mb-1 flex items-center gap-1 text-xs font-medium",
-                      msg.conflictAction && !msg.resolved ? "text-orange-600" : "text-orange-500",
-                    )}>
+                    <span
+                      className={cn(
+                        "mb-1 flex items-center gap-1 text-xs font-medium",
+                        msg.conflictAction && !msg.resolved
+                          ? "text-orange-600"
+                          : "text-orange-500",
+                      )}
+                    >
                       {msg.conflictAction && !msg.resolved ? (
-                        <><AlertTriangle className="h-3 w-3" /> 小熊猫 · 冲突检测</>
+                        <>
+                          <AlertTriangle className="h-3 w-3" />
+                          小熊猫 · 冲突检测
+                        </>
                       ) : (
                         <>🐾 小熊猫</>
                       )}
                     </span>
                   )}
-                  {msg.content}
+                  {splitContentWithUrls(msg.content).map((part, i) =>
+                    typeof part === "string" ? (
+                      <span key={i}>{part}</span>
+                    ) : (
+                      <a
+                        key={i}
+                        href={part.url.replace(/[.,;:)\]}>]+$/, "")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {part.url}
+                      </a>
+                    )
+                  )}
+                  {msg.role === "assistant" && (msg.content.includes("升级会员") || msg.content.includes("精力耗尽")) && (
+                    <div className="mt-2">
+                      <Link
+                        href="/pricing"
+                        className="inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-orange-600 dark:bg-orange-600 dark:hover:bg-orange-700"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        去升级 →
+                      </Link>
+                    </div>
+                  )}
                   {/* 长期目标规划预览卡片 */}
                   {msg.goalPlan && msg.role === "assistant" && msg.goalPlan.preview.length > 0 && (
                     <div className="mt-3 rounded-xl border border-neutral-200 bg-white/90 p-3 text-xs text-neutral-700 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-neutral-200">
@@ -810,6 +1209,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="ml-1 text-[10px] text-blue-500 underline hover:text-blue-600"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 参考资料
                               </a>
@@ -830,6 +1230,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-500 underline hover:text-blue-600"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 {r.title}
                               </a>
@@ -885,7 +1286,49 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                       </div>
                     </div>
                   )}
-                  {/* 冲突确认操作按钮 */}
+                  {/* 本轮参考的社区技能（ClawHub 即用即删） */}
+                  {msg.communitySkills && msg.communitySkills.length > 0 && msg.role === "assistant" && (
+                    <div className="mt-2 text-[10px] text-neutral-500 dark:text-neutral-400">
+                      本轮参考了 {msg.communitySkills.length} 个社区技能：
+                      {msg.communitySkills.map((s, i) => (
+                        <span key={s.slug}>
+                          {i > 0 && "、"}
+                          <a
+                            href={`https://clawhub.ai/skills/${encodeURIComponent(s.slug)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 underline hover:text-blue-600"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {s.displayName || s.slug}
+                          </a>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* PRD 第十一章：推荐安装社区技能（安装后下次可自动执行） */}
+                  {msg.suggestInstall && msg.role === "assistant" && (
+                    <div className="mt-2 rounded-lg border border-emerald-200/60 bg-emerald-50/80 p-2 text-xs dark:border-emerald-800/50 dark:bg-emerald-950/30">
+                      <p className="text-neutral-700 dark:text-neutral-300">
+                        发现技能「{msg.suggestInstall.displayName || msg.suggestInstall.slug}」，安装后下次可自动执行。
+                      </p>
+                      {msg.suggestInstallInstalled ? (
+                        <span className="mt-1 inline-block text-emerald-600 dark:text-emerald-400">已安装</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleInstallCommunitySkill(msg.id, msg.suggestInstall!.slug);
+                          }}
+                          className="mt-1.5 inline-flex items-center rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700"
+                        >
+                          安装
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {/* 冲突确认：Yes/No 统一交互（PRD 语音优先） */}
                   {msg.conflictAction && !msg.resolved && (
                     <div className="mt-3 flex items-center gap-2 border-t border-orange-200/50 pt-3 dark:border-orange-800/50">
                       <button
@@ -894,7 +1337,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                         className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-600"
                       >
                         <Check className="h-3 w-3" />
-                        接受建议
+                        好的
                       </button>
                       <button
                         type="button"
@@ -902,7 +1345,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                         className="flex items-center gap-1.5 rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600"
                       >
                         <X className="h-3 w-3" />
-                        忽略冲突
+                        暂不
                       </button>
                     </div>
                   )}
@@ -950,9 +1393,10 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
         </div>
       )}
 
-      {/* 输入区域 */}
+      {/* 输入区域（语音优先：按住说话或输入） */}
       <div className="border-t border-neutral-200/60 bg-white/80 px-4 py-4 backdrop-blur-xl dark:border-neutral-800 dark:bg-neutral-950/80">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
+        <div className="mx-auto flex max-w-2xl flex-col gap-1">
+          <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={toggleRecording}
@@ -975,7 +1419,7 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="告诉小熊猫你想做什么…"
+            placeholder="按住麦克风说话，或直接输入…"
             disabled={isBusy}
             className="h-10 flex-1 rounded-full border border-neutral-200 bg-neutral-50 px-4 text-sm outline-none transition-colors placeholder:text-neutral-400 focus:border-orange-300 focus:ring-2 focus:ring-orange-200/50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-50 dark:placeholder:text-neutral-500 dark:focus:border-orange-600 dark:focus:ring-orange-800/30"
           />
@@ -994,6 +1438,13 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
           >
             <Send className="h-4 w-4" />
           </button>
+          </div>
+          <p className="text-center text-[11px] text-neutral-400">
+            按住麦克风说话，说完自动解析；或直接输入文字
+            {typeof remainingToday === "number" && (
+              <span className="ml-2 text-orange-500/80">· 今日剩余 {remainingToday} 次</span>
+            )}
+          </p>
         </div>
       </div>
     </div>

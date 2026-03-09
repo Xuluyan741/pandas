@@ -30,7 +30,13 @@ export const viewport: Viewport = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const session = await getServerSession(authOptions);
+  let session = null;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (e) {
+    // NEXTAUTH_SECRET 更换或 cookie 与当前 secret 不匹配时会解密失败，不阻塞渲染，用户清除 cookie 后重新登录即可
+    console.warn("[layout] getServerSession failed (e.g. JWT decryption):", (e as Error).message);
+  }
   return (
     <html lang="zh-CN">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>

@@ -27,8 +27,8 @@ export type ActionHint =
   | "shopping"
   | "none";
 
-/** 模型提供商 */
-export type ModelProvider = "anthropic" | "openai" | "google" | "deepseek";
+/** 模型提供商（含 vLLM 本地/自建） */
+export type ModelProvider = "anthropic" | "openai" | "google" | "deepseek" | "vllm";
 
 /**
  * 模型配置：描述一个可用模型及其成本
@@ -63,12 +63,36 @@ export interface RouteDecision {
   maxTokens?: number;
 }
 
+/** 单条消息（含可选 tool_calls / tool 结果） */
+export type CompletionMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls?: ToolCallItem[] }
+  | { role: "tool"; content: string; tool_call_id: string };
+
 /** 模型统一调用参数 */
 export interface CompletionRequest {
-  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  messages: CompletionMessage[];
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
+}
+
+/** OpenAI/DeepSeek 风格工具定义（用于按意图挂载 MCP 工具） */
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+}
+
+/** 模型返回的 tool_call（需由调用方执行后回填） */
+export interface ToolCallItem {
+  id: string;
+  name: string;
+  arguments: string;
 }
 
 /** 模型统一调用返回 */

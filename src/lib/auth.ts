@@ -65,9 +65,10 @@ export const authOptions: AuthOptions = {
           const hash = await bcrypt.hash(credentials.password, 12);
           const id = randomUUID();
           const displayName = credentials.name?.trim() || credentials.email.split("@")[0];
+          const trialUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
           await db.execute({
-            sql: "INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)",
-            args: [id, credentials.email, displayName, hash],
+            sql: "INSERT INTO users (id, email, name, password_hash, trial_until, trial_count_used) VALUES (?, ?, ?, ?, ?, 0)",
+            args: [id, credentials.email, displayName, hash, trialUntil],
           });
           return { id, email: credentials.email, name: displayName };
         }
@@ -92,9 +93,10 @@ export const authOptions: AuthOptions = {
 
         if (!row) {
           const id = randomUUID();
+          const trialUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
           await db.execute({
-            sql: "INSERT INTO users (id, email, name, image, google_id) VALUES (?, ?, ?, ?, ?)",
-            args: [id, user.email ?? null, user.name ?? null, user.image ?? null, (profile as { sub?: string })?.sub ?? null],
+            sql: "INSERT INTO users (id, email, name, image, google_id, trial_until, trial_count_used) VALUES (?, ?, ?, ?, ?, ?, 0)",
+            args: [id, user.email ?? null, user.name ?? null, user.image ?? null, (profile as { sub?: string })?.sub ?? null, trialUntil],
           });
           user.id = id;
         } else {

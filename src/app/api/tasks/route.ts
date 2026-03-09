@@ -33,16 +33,18 @@ export async function GET() {
         startTime: t.start_time || undefined,
         endTime: t.end_time || undefined,
         duration: Number(t.duration) || 1,
-      dependencies: JSON.parse((t.dependencies as string) ?? "[]"),
-      status: t.status,
-      priority: t.priority,
-      isRecurring: (t.is_recurring as number) === 1 || (t.is_recurring as string) === "1",
-      progress: numProgress(t),
-      createdAt: t.created_at,
-      updatedAt: t.updated_at,
-    }))
-  );
-}
+        dependencies: JSON.parse((t.dependencies as string) ?? "[]"),
+        status: t.status,
+        priority: t.priority,
+        isRecurring: (t.is_recurring as number) === 1 || (t.is_recurring as string) === "1",
+        progress: numProgress(t),
+        parentGoalId: (t.parent_goal_id as string) || undefined,
+        resourceUrl: (t.resource_url as string) || undefined,
+        createdAt: t.created_at,
+        updatedAt: t.updated_at,
+      }))
+    );
+  }
 
 export async function POST(req: NextRequest) {
   const auth = await requireUserId();
@@ -54,12 +56,14 @@ export async function POST(req: NextRequest) {
 
   await db.execute({
     sql: `
-      INSERT INTO tasks (id, user_id, project_id, name, start_date, start_time, end_time, duration, dependencies, status, priority, is_recurring, progress, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, user_id, project_id, name, start_date, start_time, end_time, duration, dependencies, status, priority, is_recurring, progress, parent_goal_id, resource_url, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name, start_date = excluded.start_date, start_time = excluded.start_time, end_time = excluded.end_time, duration = excluded.duration,
         dependencies = excluded.dependencies, status = excluded.status, priority = excluded.priority,
-        is_recurring = excluded.is_recurring, progress = excluded.progress, updated_at = excluded.updated_at
+        is_recurring = excluded.is_recurring, progress = excluded.progress,
+        parent_goal_id = excluded.parent_goal_id, resource_url = excluded.resource_url,
+        updated_at = excluded.updated_at
     `,
     args: [
       id, auth.userId, body.projectId, body.name,
@@ -67,6 +71,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify(body.dependencies ?? []),
       body.status ?? "To Do", body.priority ?? "中",
       body.isRecurring ? 1 : 0, body.progress ?? 0,
+      body.parentGoalId || null, body.resourceUrl || null,
       body.createdAt ?? now, body.updatedAt ?? now,
     ],
   });

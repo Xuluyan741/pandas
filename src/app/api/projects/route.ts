@@ -39,11 +39,11 @@ export async function POST(req: NextRequest) {
   const id = body.id || randomUUID();
   const now = new Date().toISOString();
 
-  // 免费用户项目数量限制（最多 3 个）
+  // 免费用户项目数量限制
   const ok = await checkUsageLimit(auth.userId, "project_count");
   if (!ok) {
     return NextResponse.json(
-      { error: "免费版最多只能创建 3 个项目，请升级 Pro 解锁无限项目。" },
+      { error: "免费版项目数量已达上限，请升级 Pro 解锁无限项目，或先移除部分项目。" },
       { status: 403 },
     );
   }

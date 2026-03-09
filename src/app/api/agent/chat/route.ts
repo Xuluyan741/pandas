@@ -14,8 +14,20 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import type { ActionHint } from "@/lib/ai/types";
 import { runSkill } from "@/lib/skills/registry";
-import { canConsume, recordUsage } from "@/lib/quota";
-import { DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL } from "@/lib/models";
+import { discoverClawHubSkillsForTask } from "@/lib/skills/clawhub";
+import { getInstalledCommunitySlugs } from "@/lib/skills/community-installed";
+import { runCommunitySkill } from "@/lib/skills/community-run";
+import { canConsume, recordUsage, QUOTA_EXHAUSTED_MESSAGE } from "@/lib/quota";
+import { logRouterCall } from "@/lib/router-log";
+import { saveArtifact } from "@/lib/artifacts";
+import { DEEPSEEK_API_KEY } from "@/lib/models";
+import { getUnifiedCompletion, getUnifiedCompletionWithTools } from "@/lib/ai/unified";
+import type { ToolDefinition } from "@/lib/ai/types";
+import { loadMemoryForPrompt } from "@/lib/agent-memory";
+import { logEvent } from "@/lib/analytics";
+import { getMcpConfigList } from "@/lib/mcp-config";
+import { mcpListTools, mcpCallTool } from "@/lib/mcp-client";
+import { selectMcpToolsForIntent } from "@/lib/mcp-intent";
 
 interface ChatRequest {
   text: string;
@@ -67,6 +79,20 @@ function detectActionHintFromText(text: string): ActionHint {
   return "none";
 }
 
+/** 检测是否为「查资料/搜索」意图（主对话内接入 web_search 用） */
+function hasSearchIntent(text: string): boolean {
+  return /搜一下|查一下|搜索|查资料|帮我搜|调研|了解一下|找.*资料/.test(text);
+}
+
+/** 从用户消息中提取搜索关键词 */
+function extractSearchQuery(text: string): string {
+  const cleaned = text
+    .replace(/^(帮我)?(搜一下|查一下|搜索|查资料|调研)\s*[:：]?\s*/i, "")
+    .replace(/^(了解一下|找一下)\s*[:：]?\s*/i, "")
+    .trim();
+  return cleaned || text.trim().slice(0, 80);
+}
+
 /** 检测是否为长期目标请求，返回类别。null 表示非长期目标 */
 function detectGoalCategory(text: string): GoalCategory | null {
   if (/旅游|旅行|出国|行程|假期|韩国|日本|欧洲|美国|泰国|香港|澳门|机票|酒店/.test(text) ||
@@ -95,6 +121,23 @@ function detectGoalCategory(text: string): GoalCategory | null {
 function inferDeadline(text: string, todayISO: string): string | null {
   const year = todayISO.slice(0, 4);
   const todayDate = new Date(todayISO);
+  const dayOfWeek = todayDate.getDay(); // 0=周日, 1=周一, ..., 6=周六
+
+  // 这周/本周/这一周 → 本周最后一天（周日）
+  if (/这周|本周|这一周|这周内|本周内/.test(text)) {
+    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    const d = new Date(todayDate);
+    d.setDate(d.getDate() + daysUntilSunday);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // 下周 → 下周日（本周日 + 7 天）
+  if (/下周|下一周/.test(text)) {
+    const daysUntilNextSunday = dayOfWeek === 0 ? 7 : 14 - dayOfWeek;
+    const d = new Date(todayDate);
+    d.setDate(d.getDate() + daysUntilNextSunday);
+    return d.toISOString().slice(0, 10);
+  }
 
   const holidayMap: Record<string, string> = {
     "五一": `${year}-05-01`,
@@ -126,6 +169,77 @@ function inferDeadline(text: string, todayISO: string): string | null {
   }
 
   return null;
+}
+
+/** 推断「明天」的日期（用于 fallback 单任务） */
+function inferTomorrowISO(todayISO: string): string {
+  const d = new Date(todayISO);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * 当 LLM 未输出任务但用户明显说了「时间+要完成的事」时，用规则补一条任务，避免只回复不写入日程
+ */
+function fallbackTaskFromText(text: string, todayISO: string): { title: string; startDate: string } | null {
+  const hasDeadline =
+    /明天|后天|这周|本周|下周|这两天|礼拜|星期|截止|之前要|之前得|之前完成|晚上要|早上要|今天|下午|早上/.test(text) ||
+    /\d{1,2}月\d{1,2}/.test(text);
+  const hasTask =
+    /要完成|要做|得交|得完成|要交|要准备|要写|要做|完成.*PPT|做.*PPT|写.*报告|交.*作业|记.*日程|记一下|帮我记|安排一下/.test(text);
+  if (!hasDeadline || !hasTask) return null;
+
+  let startDate: string;
+  if (/明天|明日/.test(text)) {
+    startDate = inferTomorrowISO(todayISO);
+  } else if (/后天/.test(text)) {
+    const d = new Date(todayISO);
+    d.setDate(d.getDate() + 2);
+    startDate = d.toISOString().slice(0, 10);
+  } else {
+    startDate = inferDeadline(text, todayISO) ?? todayISO;
+  }
+
+  const titleMatch =
+    text.match(/(?:要完成|要做|得完成|要交|要准备|要写)\s*[：:]*\s*([^，。！？\n]+)/) ||
+    text.match(/完成\s*([^，。！？\n]+)/) ||
+    text.match(/做\s*([^，。！？\n]+)/);
+  const title = titleMatch ? titleMatch[1].trim().slice(0, 80) : "待办事项";
+  return { title, startDate };
+}
+
+/**
+ * 当用户说了多件事（如「写简历、模拟面试、投简历」）但 LLM 未输出多任务时，用规则拆成多条任务，确保「已记到日程」时真的写入
+ */
+function fallbackMultipleTasksFromText(
+  text: string,
+  todayISO: string,
+): Array<{ title: string; startDate: string }> | null {
+  const hasTaskIntent =
+    /要完成|要做|得交|得完成|要交|要准备|要写|记.*日程|记一下|帮我记|安排一下|都?记到/.test(text);
+  if (!hasTaskIntent) return null;
+
+  let startDate: string;
+  if (/明天|明日/.test(text)) {
+    startDate = inferTomorrowISO(todayISO);
+  } else if (/后天/.test(text)) {
+    const d = new Date(todayISO);
+    d.setDate(d.getDate() + 2);
+    startDate = d.toISOString().slice(0, 10);
+  } else {
+    startDate = inferDeadline(text, todayISO) ?? todayISO;
+  }
+
+  const listMatch =
+    text.match(/(?:要完成|要做|得完成|要交|要准备|要写|把|都)\s*[：:]*\s*([^。！？\n]+?)(?:都?记|了|$)/) ||
+    text.match(/([^，。！？\n]+(?:、[^，。！？\n]+)+)/);
+  const segment = listMatch ? listMatch[1].trim() : text;
+  const parts = segment
+    .split(/[、，]\s*|\s+和\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2 && s.length <= 60 && !/^(今天|明天|后天|这周|下周)/.test(s));
+  if (parts.length < 2) return null;
+  return parts.map((title) => ({ title, startDate }));
 }
 
 export async function POST(req: NextRequest) {
@@ -161,13 +275,17 @@ export async function POST(req: NextRequest) {
   (async () => {
     try {
       const { todayISO, weekday, hour } = getDateContext();
-      const session = await getServerSession(authOptions);
-      const userId = session?.user?.id ?? "guest";
+      const internalUserId = req.headers.get("x-internal-user-id");
+      const internalSecret = req.headers.get("x-internal-secret");
+      const cronSecret = process.env.CRON_SECRET;
+      const isInternal = cronSecret && internalSecret === cronSecret && internalUserId;
+      const session = isInternal ? null : await getServerSession(authOptions);
+      const userId = isInternal ? internalUserId! : (session?.user?.id ?? "guest");
 
       const quota = await canConsume(userId, "agent_chat");
       if (!quota.allowed) {
         await sseEvent(writer, encoder, "reply", {
-          text: "小熊猫今天的精力已经用完啦。如果你希望我继续帮你排忧解难，可以稍后再试，或者升级为会员以获得更多次数。",
+          text: QUOTA_EXHAUSTED_MESSAGE,
           tasks: [],
         });
         await writer.close();
@@ -325,10 +443,12 @@ export async function POST(req: NextRequest) {
         "}",
         "",
         "要求：",
-        "1. 时间推算基于今天日期；'明天'=今天+1天；'下周一'=最近的下个周一。",
-        "2. reply 要简短温暖，像好朋友说话，融入当前时间段的关心。",
-        '3. 若用户输入不包含具体任务，reply 正常回复，tasks 为空数组。',
-        "4. 不要输出 markdown 格式。",
+        "1. 时间推算基于今天日期；'明天'=今天+1天；'明天晚上'=明天日期、可选 endTime 如 21:00；'这两天'=今天起共2天；'这周'=本周内；'下周一'=最近的下个周一。",
+        "2. reply 要简短温暖，像好朋友说话，融入当前时间段的关心；但回复里可以同时提醒「已帮你记到日程」或「记得明天白天来做」。",
+        "3. 只要用户提到了「要做的事」且带有时间意向（如「明天要完成」「明天晚上要交」「这周要做」「截止」「得完成」等），必须在 tasks 里输出至少一条任务，否则无法真正加入日程。不要只回复关心语而 tasks 为空。",
+        "4. 例如：用户说「明天晚上要完成PPT」→ 必须输出 tasks: [{ title: \"完成PPT\", startDate: 明天日期, ... }]；用户说「这周要交报告」→ 必须输出至少一条对应任务。",
+        '5. 仅当用户纯闲聊、问候或明确说「不用记」「不用安排」时，tasks 才为空数组。',
+        "6. 不要输出 markdown 格式。",
       ].join("\n");
 
       const userPrompt = [
@@ -339,35 +459,61 @@ export async function POST(req: NextRequest) {
         `用户说：${text}`,
       ].join("\n");
 
-      await recordUsage(userId, "agent_chat");
-
-      const aiRes = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: DEEPSEEK_MODEL,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.3,
-          max_tokens: 800,
-          stream: false,
-        }),
-      });
-
-      if (!aiRes.ok) {
-        const errText = await aiRes.text().catch(() => "");
-        throw new Error(`AI 调用失败：${aiRes.status} ${errText}`);
+      // 即用即删：按当前输入在 ClawHub 搜索匹配技能，仅当轮注入 context；PRD 第十一章：已安装则执行，未安装则推荐安装
+      let communitySkillsBlock = "";
+      let skillsUsedInTurn: { slug: string; displayName: string }[] = [];
+      let toRunSkill: { slug: string; displayName: string } | null = null;
+      let suggestInstall: { slug: string; displayName: string } | null = null;
+      if (process.env.CLAWHUB_API_BASE !== "0") {
+        try {
+          const skillsForTurn = await discoverClawHubSkillsForTask(text, 2, 1800);
+          if (skillsForTurn.length > 0) {
+            skillsUsedInTurn = skillsForTurn.map((s) => ({
+              slug: s.slug,
+              displayName: s.displayName,
+            }));
+            communitySkillsBlock =
+              "\n\n本轮参考的社区技能（仅当轮有效，用后即删）：\n" +
+              skillsForTurn
+                .map(
+                  (s) =>
+                    `【${s.displayName}】(slug: ${s.slug})\n${s.excerpt.slice(0, 900)}`,
+                )
+                .join("\n\n---\n\n");
+            if (userId && userId !== "guest") {
+              const installed = await getInstalledCommunitySlugs(userId);
+              const toRun = skillsForTurn.find((s) => installed.includes(s.slug));
+              const toSuggest = skillsForTurn.find((s) => !installed.includes(s.slug));
+              if (toRun) toRunSkill = { slug: toRun.slug, displayName: toRun.displayName };
+              if (toSuggest) suggestInstall = { slug: toSuggest.slug, displayName: toSuggest.displayName };
+            }
+            await sseEvent(writer, encoder, "skills_used", {
+              skills: skillsUsedInTurn,
+            });
+          }
+        } catch {
+          // ClawHub 不可用时静默跳过，不影响主流程
+        }
       }
 
-      const aiData = (await aiRes.json()) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      const rawContent = aiData.choices?.[0]?.message?.content ?? "";
+      const memoryStr = await loadMemoryForPrompt(userId);
+      const systemPromptWithMemory =
+        systemPrompt +
+        (memoryStr ? "\n\n用户相关记忆：\n" + memoryStr : "") +
+        communitySkillsBlock;
+
+      const completionResult = await getUnifiedCompletion(
+        [
+          { role: "system", content: systemPromptWithMemory },
+          { role: "user", content: userPrompt },
+        ],
+        { temperature: 0.3, maxTokens: 800 },
+      );
+      const rawContent = completionResult.content;
+      await recordUsage(userId, "agent_chat", new Date(), completionResult.costUSD);
+      if (userId && completionResult.model && (completionResult.costUSD ?? 0) > 0) {
+        logRouterCall(userId, "agent_chat", completionResult.model, completionResult.costUSD ?? 0);
+      }
       const jsonText = extractJson(rawContent);
 
       let parsed: {
@@ -387,15 +533,99 @@ export async function POST(req: NextRequest) {
       try {
         parsed = JSON.parse(jsonText);
       } catch {
-        await sseEvent(writer, encoder, "reply", {
-          text: rawContent || "我没有完全听懂，你能再说一次吗？",
-          tasks: [],
-        });
-        return;
+        // JSON 解析失败时仍尝试规则兜底：若用户明显说了「时间+要完成的事」，补一条任务，避免回复「已记到日程」却未写入
+        const fallback = fallbackTaskFromText(text, todayISO);
+        if (fallback) {
+          parsed = {
+            reply: rawContent?.trim().slice(0, 500) || "收到，已帮你记到日程里了。",
+            tasks: [
+              {
+                title: fallback.title,
+                projectName: "",
+                startDate: fallback.startDate,
+                startTime: "",
+                endTime: "",
+                durationDays: 1,
+                priority: "中",
+                isRecurring: false,
+              },
+            ],
+          };
+        } else {
+          await sseEvent(writer, encoder, "reply", {
+            text: rawContent || "我没有完全听懂，你能再说一次吗？",
+            tasks: [],
+            ...(skillsUsedInTurn.length > 0 && { communitySkills: skillsUsedInTurn }),
+          });
+          return;
+        }
       }
 
-      const parsedTasks = parsed.tasks ?? [];
+      let parsedTasks = parsed.tasks ?? [];
       const reply = parsed.reply || "";
+
+      // 当用户明显说了「时间+要完成的事」但 LLM 未输出任务时，用规则补任务，确保「已记到日程」时真的写入
+      if (parsedTasks.length === 0) {
+        const multi = fallbackMultipleTasksFromText(text, todayISO);
+        if (multi?.length) {
+          parsedTasks = multi.map(({ title, startDate }) => ({
+            title,
+            projectName: "",
+            startDate,
+            startTime: "",
+            endTime: "",
+            durationDays: 1,
+            priority: "中",
+            isRecurring: false,
+          }));
+        } else {
+          const fallback = fallbackTaskFromText(text, todayISO);
+          if (fallback) {
+            parsedTasks = [
+              {
+                title: fallback.title,
+                projectName: "",
+                startDate: fallback.startDate,
+                startTime: "",
+                endTime: "",
+                durationDays: 1,
+                priority: "中",
+                isRecurring: false,
+              },
+            ];
+          }
+        }
+      }
+
+      // 网页搜索意图：接入 web_search 技能，结果追加到回复（需配置 SERPER_API_KEY 或 BRAVE_API_KEY）
+      let searchBlock = "";
+      if (hasSearchIntent(text)) {
+        await sseEvent(writer, encoder, "thought", {
+          step: "search",
+          message: "正在联网搜索…",
+        });
+        try {
+          const query = extractSearchQuery(text);
+          const searchResult = await runSkill<
+            { query: string; num?: number },
+            { results: { title: string; url: string; snippet: string }[]; error?: string }
+          >("web_search", { query, num: 5 });
+          if (searchResult.results?.length > 0) {
+            searchBlock =
+              "\n\n【网页搜索】\n" +
+              searchResult.results
+                .map(
+                  (r, i) =>
+                    `${i + 1}. ${r.title}\n   ${r.url}\n   ${(r.snippet || "").slice(0, 120)}${(r.snippet?.length ?? 0) > 120 ? "…" : ""}`,
+                )
+                .join("\n\n");
+          } else if (searchResult.error) {
+            searchBlock = "\n\n【网页搜索】暂时无法联网搜索（未配置 SERPER_API_KEY 或 BRAVE_API_KEY）。";
+          }
+        } catch {
+          searchBlock = "\n\n【网页搜索】搜索时出了点问题，请稍后再试。";
+        }
+      }
 
       // Deep Link 动作识别
       const actionHint: ActionHint = detectActionHintFromText(text);
@@ -501,16 +731,76 @@ export async function POST(req: NextRequest) {
           message: "分析完成，这是我的建议。",
         });
 
+        // PMF 埋点：Agent 成功返回带冲突消解/AI 建议的日程
+        const hasConflict = results.some((r) => r.conflict?.hasConflict);
+        await logEvent(userId, "agent_chat_schedule_suggested", {
+          has_conflict: hasConflict,
+          task_count: results.length,
+        });
+        if (userId && hasConflict) {
+          const summary = results
+            .filter((r) => r.conflict?.summary)
+            .map((r) => r.conflict!.summary)
+            .join("\n");
+          if (summary) saveArtifact(userId, "conflict_advice", summary).catch(() => {});
+        }
+
+        // PRD 第十一章：已安装的社区技能在本轮执行，结果追加到回复；网页搜索结果一并追加
+        let replyText = reply + searchBlock;
+        if (toRunSkill) {
+          try {
+            const exec = await runCommunitySkill(toRunSkill.slug, text);
+            if (exec.content) {
+              replyText += "\n\n【技能「" + toRunSkill.displayName + "」】\n" + exec.content;
+            }
+          } catch {
+            // 技能执行失败不阻塞主回复
+          }
+        }
+        // 主对话内直接使用 MCP：配好 MCP_SERVER_URL 或安装过 MCP 后，自动按意图调用并追加结果
+        try {
+          const mcpBlock = await runMcpRoundForMainChat(text, userId);
+          if (mcpBlock) {
+            await sseEvent(writer, encoder, "thought", { step: "mcp", message: "正在使用 MCP 工具…" });
+            replyText += mcpBlock;
+          }
+        } catch {
+          // MCP 失败不阻塞主回复
+        }
         await sseEvent(writer, encoder, "reply", {
-          text: reply,
+          text: replyText,
           tasks: results,
           actionCard,
+          ...(skillsUsedInTurn.length > 0 && { communitySkills: skillsUsedInTurn }),
+          ...(suggestInstall && { suggestInstall }),
         });
       } else {
+        let replyText = (reply || rawContent || "收到～有什么需要安排的随时告诉我。") + searchBlock;
+        if (toRunSkill) {
+          try {
+            const exec = await runCommunitySkill(toRunSkill.slug, text);
+            if (exec.content) {
+              replyText += "\n\n【技能「" + toRunSkill.displayName + "」】\n" + exec.content;
+            }
+          } catch {
+            // 技能执行失败不阻塞主回复
+          }
+        }
+        try {
+          const mcpBlock = await runMcpRoundForMainChat(text, userId);
+          if (mcpBlock) {
+            await sseEvent(writer, encoder, "thought", { step: "mcp", message: "正在使用 MCP 工具…" });
+            replyText += mcpBlock;
+          }
+        } catch {
+          // MCP 失败不阻塞主回复
+        }
         await sseEvent(writer, encoder, "reply", {
-          text: reply || rawContent || "收到～有什么需要安排的随时告诉我。",
+          text: replyText,
           actionCard,
           tasks: [],
+          ...(skillsUsedInTurn.length > 0 && { communitySkills: skillsUsedInTurn }),
+          ...(suggestInstall && { suggestInstall }),
         });
       }
     } catch (err) {
@@ -547,4 +837,74 @@ function extractJson(content: string): string {
     return lines.join("\n").trim();
   }
   return trimmed;
+}
+
+/**
+ * 主对话内直接使用 MCP：若配置了 MCP 且用户输入匹配到工具，执行一轮并返回要追加的文案
+ */
+async function runMcpRoundForMainChat(
+  text: string,
+  userId: string | null,
+): Promise<string> {
+  const configList = await getMcpConfigList(userId);
+  if (configList.length === 0) return "";
+
+  const mergedTools: { name: string; description?: string; inputSchema?: Record<string, unknown> }[] = [];
+  const callMap: Record<string, { url: string; headers?: Record<string, string>; originalName: string }> = {};
+
+  for (const config of configList) {
+    try {
+      const { tools } = await mcpListTools(config.url, config.headers);
+      for (const t of tools) {
+        const prefixedName = `${config.slug}_${t.name}`;
+        mergedTools.push({
+          name: prefixedName,
+          description: t.description ? `[${config.name}] ${t.description}` : `[${config.name}]`,
+          inputSchema: t.inputSchema,
+        });
+        callMap[prefixedName] = { url: config.url, headers: config.headers, originalName: t.name };
+      }
+    } catch {
+      // 单台失败不影响其他
+    }
+  }
+
+  const selected = selectMcpToolsForIntent(text, mergedTools, { maxTools: 3 });
+  if (selected.length === 0) return "";
+
+  const toolDefs: ToolDefinition[] = selected.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description ?? "",
+      parameters: (t.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} },
+    },
+  }));
+
+  const result = await getUnifiedCompletionWithTools(
+    [
+      { role: "system", content: "根据用户输入，若需要可调用工具完成任务；无须调用则简短回复。" },
+      { role: "user", content: text },
+    ],
+    toolDefs,
+    { temperature: 0.3, maxTokens: 1024 },
+  );
+  if (!result.toolCalls?.length) return "";
+
+  const parts: string[] = [];
+  for (const tc of result.toolCalls) {
+    const lookup = callMap[tc.name];
+    if (!lookup) continue;
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(tc.arguments || "{}") as Record<string, unknown>;
+    } catch {
+      // ignore
+    }
+    const callResult = await mcpCallTool(lookup.url, lookup.originalName, args, lookup.headers);
+    const textContent = callResult.content?.map((c) => c.text).filter(Boolean).join("\n") ?? "";
+    if (textContent) parts.push(textContent);
+  }
+  if (parts.length === 0) return "";
+  return "\n\n【MCP】\n" + parts.join("\n\n");
 }

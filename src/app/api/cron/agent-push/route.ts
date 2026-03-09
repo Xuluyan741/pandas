@@ -7,15 +7,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { pickTopPush } from "@/lib/agent-push";
 import { sendPushNotification, isPushConfigured } from "@/lib/push";
-import type { Task } from "@/types";
-import { canConsume, recordUsage } from "@/lib/quota";
+import type { Task, LongTermGoal } from "@/types";
+import { canConsume, recordUsage, getUsageCount, MAX_DAILY_PUSHES } from "@/lib/quota";
+import {
+  nextRunFromCron,
+  nextRunFromInterval,
+} from "@/lib/cron-reminders";
+import { isOverdue, isDueToday } from "@/lib/progress";
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
 const DEEPSEEK_BASE_URL =
   process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
 
-/** 数据库行转 Task */
+/** 数据库行转 Task（含长期目标字段） */
 function rowToTask(row: Record<string, unknown>): Task {
   return {
     id: row.id as string,
@@ -30,6 +35,8 @@ function rowToTask(row: Record<string, unknown>): Task {
     priority: row.priority as Task["priority"],
     isRecurring: (row.is_recurring as number) === 1,
     progress: Number(row.progress) || 0,
+    parentGoalId: (row.parent_goal_id as string) || undefined,
+    resourceUrl: (row.resource_url as string) || undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -141,8 +148,42 @@ async function runAgentPush(req: NextRequest) {
 
   let sent = 0;
   const now = new Date();
+  const nowISO = now.toISOString();
 
   for (const [userId, subs] of byUser) {
+    /* ── 1. 先处理 nanobot 风格定时提醒（到点的先发） ── */
+    const remRes = await db.execute({
+      sql: "SELECT id, name, message, cron_expr, interval_seconds, next_run_at FROM scheduled_reminders WHERE user_id = ? AND next_run_at <= ?",
+      args: [userId, nowISO],
+    });
+    const remRows = (remRes.rows || []) as Record<string, unknown>[];
+    for (const r of remRows) {
+      const id = r.id as string;
+      const name = r.name as string;
+      const message = r.message as string;
+      const cronExpr = r.cron_expr as string | null;
+      const intervalSeconds = r.interval_seconds as number | null;
+      const nextRunAt = new Date(r.next_run_at as string);
+      const nextAt = cronExpr
+        ? nextRunFromCron(cronExpr, now)
+        : nextRunFromInterval(intervalSeconds ?? 3600, nextRunAt);
+      await db.execute({
+        sql: "UPDATE scheduled_reminders SET next_run_at = ? WHERE id = ?",
+        args: [nextAt.toISOString(), id],
+      });
+      for (const sub of subs) {
+        const ok = await sendPushNotification(sub, {
+          title: name || "提醒",
+          body: message,
+          url: "/",
+        });
+        if (ok) sent++;
+      }
+    }
+
+    /* ── 2. 若已发过定时提醒，本用户本轮不再发 Agent 决策推送（避免一次两条） ── */
+    if (remRows.length > 0) continue;
+
     /* ── 加载用户任务 ── */
     const tRes = await db.execute({
       sql: "SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at ASC",
@@ -151,18 +192,46 @@ async function runAgentPush(req: NextRequest) {
     const taskRows = (tRes.rows || []) as Record<string, unknown>[];
     const tasks: Task[] = taskRows.map(rowToTask);
 
-    /* ── 配额检查 ── */
-    const quota = await canConsume(userId, "agent_push", now);
-    if (!quota.allowed) {
-      continue;
-    }
+    /* ── 加载长期目标（Phase 6：监督推送用） ── */
+    const gRes = await db.execute({
+      sql: "SELECT id, title, deadline, category, status, created_at FROM long_term_goals WHERE user_id = ? AND status = ?",
+      args: [userId, "active"],
+    });
+    const goals = ((gRes.rows || []) as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      title: r.title as string,
+      deadline: r.deadline as string,
+      category: (r.category as "exam" | "fitness" | "project" | "travel" | "custom") || "custom",
+      status: (r.status as "active" | "paused" | "completed") || "active",
+      createdAt: r.created_at as string,
+    }));
 
-    /* ── Agent 决策 ── */
-    const decision = pickTopPush(tasks, now);
+    /* ── 配额检查（对话类） ── */
+    const quota = await canConsume(userId, "agent_push", now);
+    if (!quota.allowed) continue;
+
+    /* ── 每日推送上限 ≤3 条（PRD Phase 3） ── */
+    const sentToday = await getUsageCount(userId, "agent_push", "day", now);
+    if (sentToday >= MAX_DAILY_PUSHES) continue;
+
+    /* ── Agent 决策（含长期目标监督） ── */
+    const decision = pickTopPush(tasks, now, goals as LongTermGoal[]);
     if (!decision || !decision.shouldPush) continue;
 
+    /* ── 今日建议（工作 vs 学习轻量抽象，参考 ClawWork 改进） ── */
+    const notDone = tasks.filter((t) => t.status !== "Done");
+    const overdueCount = notDone.filter((t) => isOverdue(t)).length;
+    const todayCount = notDone.filter((t) => isDueToday(t) && !isOverdue(t)).length;
+    const hasGoals = (goals as LongTermGoal[]).length > 0;
+    let bodyWithSuggestion = decision.body;
+    if (hasGoals && (overdueCount > 0 || todayCount > 0)) {
+      bodyWithSuggestion += "\n\n💡 今日建议：先处理这条，再抽空推进一下长期目标～";
+    } else if (overdueCount > 0 && hasGoals) {
+      bodyWithSuggestion += "\n\n💡 今日建议：清一清逾期，再回来做计划～";
+    }
+
     /* ── LLM 润色文案 ── */
-    const polished = await polishWithLLM(decision.title, decision.body);
+    const polished = await polishWithLLM(decision.title, bodyWithSuggestion);
 
     /* ── 记录用量 + 发送推送 ── */
     await recordUsage(userId, "agent_push", now);

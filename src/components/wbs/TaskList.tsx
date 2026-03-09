@@ -73,7 +73,13 @@ export function TaskList({
 
         return (
           <EvervaultCard key={task.id}>
-            <div className="flex flex-col gap-3 p-4">
+            <div
+              className={cn(
+                "flex flex-col gap-3 rounded-xl p-4 transition-colors",
+                overdue && "bg-red-500/20 border border-red-500/40",
+                dueToday && !overdue && "bg-amber-500/20 border border-amber-500/40"
+              )}
+            >
               {/* 顶部：任务名 + 循环标签 */}
               <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">

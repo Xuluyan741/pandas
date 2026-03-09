@@ -13,7 +13,9 @@ import {
 import type { Task } from "@/types";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { canConsume, recordUsage } from "@/lib/quota";
+import { canConsume, recordUsage, QUOTA_EXHAUSTED_MESSAGE } from "@/lib/quota";
+import { logEvent } from "@/lib/analytics";
+import { getPreferences, formatPreferencesForLLM } from "@/lib/user-preferences";
 import { DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL } from "@/lib/models";
 
 interface SchedulerRequest {
@@ -69,13 +71,7 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const quota = await canConsume(userId, "scheduler", now);
   if (!quota.allowed) {
-    return NextResponse.json(
-      {
-        error:
-          "小熊猫今天为你生成冲突建议的次数已经用完啦，可以稍后再试，或者登录/升级为会员以获得更多配额。",
-      },
-      { status: 429 },
-    );
+    return NextResponse.json({ error: QUOTA_EXHAUSTED_MESSAGE }, { status: 429 });
   }
 
   /** 纯算法冲突检测 */
@@ -105,22 +101,29 @@ export async function POST(req: NextRequest) {
   /** 如果有冲突且要求生成 LLM 建议 */
   if (result.hasConflict && body.generateAdvice !== false && DEEPSEEK_API_KEY) {
     try {
-      // 通过配额检查后再实际扣减
       await recordUsage(userId, "scheduler", now);
-      const advice = await generateLLMAdvice(result, body.newTask);
+      const prefs = typeof userId === "string" && userId !== "guest" ? await getPreferences(userId) : {};
+      const advice = await generateLLMAdvice(result, body.newTask, formatPreferencesForLLM(prefs));
       if (advice) response.advice = advice;
     } catch (err) {
       console.error("[scheduler] LLM 建议生成失败，回退为纯算法结果", err);
     }
   }
 
+  // PMF 埋点：成功返回冲突检测/AI 建议日程
+  await logEvent(userId, "scheduler_success", {
+    has_conflict: result.hasConflict,
+    task_count: 1,
+  });
+
   return NextResponse.json(response);
 }
 
-/** 调用 LLM 将算法分析结果转化为温暖自然的建议文案 */
+/** 调用 LLM 将算法分析结果转化为温暖自然的建议文案（Phase 7+：可带入用户偏好） */
 async function generateLLMAdvice(
   result: ConflictResult,
   newTask: Task,
+  userHabitsContext = "",
 ): Promise<string | null> {
   const conflictContext = formatConflictsForLLM(result);
 
@@ -129,10 +132,12 @@ async function generateLLMAdvice(
     "用户刚添加了一个新任务但与已有日程冲突，下面是算法检测出的冲突信息和调整建议。",
     "请用 2-3 句话，以关心朋友的口吻向用户说明情况并给出建议。",
     "要求：简洁、温暖、不说废话，直接告诉用户冲突是什么、建议怎么调整。",
+    userHabitsContext ? "若建议符合用户习惯，可在文案中自然带一句「按你的习惯」即可，不要刻意标注。" : "",
     "不要用 markdown 格式，纯文本即可。",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const userPrompt = [
+    userHabitsContext ? `${userHabitsContext}\n\n` : "",
     `用户新添加的任务：「${newTask.name}」（优先级：${newTask.priority}）`,
     "",
     conflictContext,

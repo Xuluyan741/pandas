@@ -5,8 +5,9 @@
  * 收纳所有管理功能：大盘、项目表单、WBS 录入、任务列表、甘特图
  * 平时只显示一个小悬浮球，点击后从右侧滑出完整面板
  */
-import { useState } from "react";
-import { X, LayoutGrid, Plus, ListTodo, BarChart3, FolderPlus, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, LayoutGrid, Plus, ListTodo, BarChart3, FolderPlus, ChevronRight, Settings, Maximize2, Minimize2 } from "lucide-react";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { cn } from "@/lib/utils";
 import { DashboardPortfolio, AIBreakthrough } from "@/components/dashboard";
 import { GoalManager } from "@/components/dashboard/GoalManager";
@@ -14,9 +15,9 @@ import { ProjectForm, WBSInput, TaskForm, TaskList } from "@/components/wbs";
 import { GanttView } from "@/components/gantt";
 import { CalendarView } from "@/components/calendar";
 import { GradientButton } from "@/components/ui/gradient-button";
-import type { Project, Task } from "@/types";
+import type { Project, Task, LongTermGoal } from "@/types";
 
-type TabId = "dashboard" | "tasks" | "calendar" | "gantt" | "add";
+type TabId = "dashboard" | "tasks" | "calendar" | "gantt" | "add" | "settings";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "大盘", icon: <LayoutGrid className="h-4 w-4" /> },
@@ -24,11 +25,15 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "calendar", label: "日历", icon: <BarChart3 className="h-4 w-4" /> },
   { id: "gantt", label: "甘特图", icon: <BarChart3 className="h-4 w-4" /> },
   { id: "add", label: "添加", icon: <FolderPlus className="h-4 w-4" /> },
+  { id: "settings", label: "设置", icon: <Settings className="h-4 w-4" /> },
 ];
 
 interface WorkspacePanelProps {
   projects: Project[];
   tasks: Task[];
+  goals?: LongTermGoal[];
+  /** 为 true 时隐藏右下角悬浮球（主页极简布局时由右上角日历图标打开） */
+  hideFloatingButton?: boolean;
   onRemoveProject: (id: string) => void;
   onAddProject: (p: { name: string; group: "创业" | "工作" | "生活" }) => void;
   onAddTask: (task: Omit<Task, "id" | "createdAt" | "updatedAt">) => void;
@@ -42,6 +47,8 @@ interface WorkspacePanelProps {
 export function WorkspacePanel({
   projects,
   tasks,
+  goals = [],
+  hideFloatingButton = false,
   onRemoveProject,
   onAddProject,
   onAddTask,
@@ -50,6 +57,7 @@ export function WorkspacePanel({
   onWBSImport,
 }: WorkspacePanelProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
@@ -63,9 +71,17 @@ export function WorkspacePanel({
     return end < new Date(new Date().toISOString().slice(0, 10));
   }).length;
 
+  /** 主页右上角「日历」图标触发打开工作台 */
+  useEffect(() => {
+    const open = () => setIsOpen(true);
+    window.addEventListener("open-workspace", open);
+    return () => window.removeEventListener("open-workspace", open);
+  }, []);
+
   return (
     <>
-      {/* 悬浮球 */}
+      {/* 悬浮球（主页极简布局时隐藏，由右上角日历图标打开） */}
+      {!hideFloatingButton && (
       <button
         type="button"
         onClick={() => setIsOpen(true)}
@@ -90,32 +106,51 @@ export function WorkspacePanel({
           </span>
         )}
       </button>
+      )}
 
       {/* 遮罩 */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm transition-opacity"
-          onClick={() => setIsOpen(false)}
+          onClick={() => {
+            setIsOpen(false);
+            setIsFullscreen(false);
+          }}
         />
       )}
 
-      {/* 侧滑面板 */}
+      {/* 侧滑面板：支持全屏（小屏时更易用） */}
       <div
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col bg-white shadow-2xl transition-transform duration-300 ease-out dark:bg-neutral-900",
+          "fixed right-0 top-0 z-50 flex h-full flex-col bg-white shadow-2xl transition-[transform,width] duration-300 ease-out dark:bg-neutral-900",
           isOpen ? "translate-x-0" : "translate-x-full",
+          isFullscreen ? "w-full" : "w-full max-w-lg",
         )}
       >
         {/* 面板头部 */}
         <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
           <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">工作台</h2>
-          <button
-            type="button"
-            onClick={() => setIsOpen(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+              title={isFullscreen ? "退出全屏" : "全屏"}
+            >
+              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                setIsFullscreen(false);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
+              title="关闭"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Tab 切换 */}
@@ -144,7 +179,7 @@ export function WorkspacePanel({
             <div className="space-y-6">
               <DashboardPortfolio projects={projects} tasks={tasks} onRemoveProject={onRemoveProject} />
               <GoalManager />
-              <AIBreakthrough tasks={tasks} projects={projects} />
+              <AIBreakthrough tasks={tasks} projects={projects} goals={goals} />
             </div>
           )}
 
@@ -227,6 +262,8 @@ export function WorkspacePanel({
               )}
             </div>
           )}
+
+          {activeTab === "settings" && <SettingsPanel />}
         </div>
 
         {/* 快捷操作栏 */}

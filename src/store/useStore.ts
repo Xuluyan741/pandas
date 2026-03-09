@@ -36,7 +36,8 @@ interface ProjectTaskStore {
 
   loadFromServer: () => Promise<void>;
 
-  addProject:    (project: Omit<Project, "id" | "createdAt" | "updatedAt">) => void;
+  /** 添加项目；返回 { ok, error }，失败时已回滚本地状态 */
+  addProject:    (project: Omit<Project, "id" | "createdAt" | "updatedAt">) => Promise<{ ok: boolean; error?: string }>;
   updateProject: (id: string, patch: Partial<Project>) => void;
   removeProject: (id: string) => void;
 
@@ -53,6 +54,7 @@ interface ProjectTaskStore {
 
   setProjects: (projects: Project[]) => void;
   setTasks:    (tasks: Task[]) => void;
+  setGoals:    (goals: LongTermGoal[]) => void;
 }
 
 export const useStore = create<ProjectTaskStore>()((set, get) => ({
@@ -65,9 +67,10 @@ export const useStore = create<ProjectTaskStore>()((set, get) => ({
   loadFromServer: async () => {
     set({ isLoading: true });
     try {
-      const [pRes, tRes] = await Promise.all([
+      const [pRes, tRes, gRes] = await Promise.all([
         fetch("/api/projects"),
         fetch("/api/tasks"),
+        fetch("/api/goals"),
       ]);
       if (pRes.ok && tRes.ok) {
         const [projects, tasksRaw] = await Promise.all([pRes.json(), tRes.json()]);
@@ -77,6 +80,10 @@ export const useStore = create<ProjectTaskStore>()((set, get) => ({
         });
         set({ projects, tasks });
       }
+      if (gRes.ok) {
+        const goals = (await gRes.json()) as LongTermGoal[];
+        set({ goals });
+      }
     } catch (err) {
       console.error("[store] loadFromServer failed", err);
     } finally {
@@ -85,10 +92,28 @@ export const useStore = create<ProjectTaskStore>()((set, get) => ({
   },
 
   // ── 项目 ──────────────────────────────────────────
-  addProject: (project) => {
+  addProject: async (project) => {
+    if (useStore.getState().demoMode) return { ok: true };
     const p: Project = { ...project, id: genId(), createdAt: now(), updatedAt: now() };
     set((s) => ({ projects: [...s.projects, p] }));
-    apiCall("/api/projects", { method: "POST", body: JSON.stringify(p) });
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(p),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        set((s) => ({ projects: s.projects.filter((x) => x.id !== p.id) }));
+        return { ok: false, error: data.error ?? "创建项目失败" };
+      }
+      return { ok: true };
+    } catch (err) {
+      set((s) => ({ projects: s.projects.filter((x) => x.id !== p.id) }));
+      const msg = err instanceof Error ? err.message : "网络异常";
+      console.error("[api] POST /api/projects", err);
+      return { ok: false, error: msg };
+    }
   },
 
   updateProject: (id, patch) => {
@@ -162,4 +187,5 @@ export const useStore = create<ProjectTaskStore>()((set, get) => ({
 
   setProjects: (projects) => set({ projects }),
   setTasks:    (tasks)    => set({ tasks }),
+  setGoals:    (goals)    => set({ goals }),
 }));

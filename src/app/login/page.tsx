@@ -39,6 +39,11 @@ export default function LoginPage() {
     if (err) setError(ERROR_MSG[err] ?? `登录出错：${err}`);
   }, [status, searchParams, router]);
 
+  /** 工作台设置里「注册」链接带 ?tab=register，进入时默认切到注册 tab */
+  useEffect(() => {
+    if (searchParams.get("tab") === "register") setTab("register");
+  }, [searchParams]);
+
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -211,6 +216,11 @@ export default function LoginPage() {
         {/* ── 邮箱支持说明 ── */}
         <p className="mt-4 text-center text-xs text-neutral-400">
           支持 Gmail · QQ邮箱 (qq.com) · 163邮箱 · 企业邮箱等所有邮箱
+        </p>
+        <p className="mt-4 text-center text-xs text-neutral-500">
+          <a href="/privacy" className="hover:underline">隐私政策</a>
+          {" · "}
+          <a href="/terms" className="hover:underline">用户协议</a>
         </p>
       </div>
     </BackgroundGradientAnimation>

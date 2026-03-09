@@ -28,3 +28,6 @@ npm-debug.log*
 # 编辑器
 .vscode/
 .idea/
+
+# 本地语音/实验（不推新仓库）
+local_stt/.venv/

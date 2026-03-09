@@ -8,15 +8,18 @@ import type {
   CompletionRequest,
   CompletionResponse,
 } from "./types";
+import { MODELS } from "./models";
 
-/* ── 环境变量 ── */
+/* ── 环境变量（空或仅空格视为未配置，避免误走多模型路由）── */
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY?.trim() || undefined;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() || undefined;
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com";
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY?.trim() || undefined;
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY?.trim() || undefined;
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+const VLLM_API_BASE = process.env.VLLM_API_BASE ?? "http://localhost:8000/v1";
+const VLLM_API_KEY = process.env.VLLM_API_KEY ?? "dummy";
 
 /* ── 通用工具 ── */
 
@@ -239,6 +242,47 @@ async function callDeepSeek(
   };
 }
 
+/** vLLM / 本地 OpenAI 兼容接口 */
+async function callVllm(
+  model: ModelConfig,
+  req: CompletionRequest,
+): Promise<CompletionResponse> {
+  const t0 = Date.now();
+  const res = await fetch(`${VLLM_API_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: VLLM_API_KEY ? `Bearer ${VLLM_API_KEY}` : "",
+    },
+    body: JSON.stringify({
+      model: model.id,
+      messages: req.messages,
+      temperature: req.temperature ?? 0.3,
+      max_tokens: req.maxTokens ?? model.maxOutputTokens ?? 4096,
+      stream: false,
+    }),
+  });
+  const latencyMs = Date.now() - t0;
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`vLLM ${res.status}: ${body}`);
+  }
+  const data = await res.json();
+  const content = extractContent(data.choices?.[0]?.message?.content ?? "");
+  const usage = {
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+  };
+  return {
+    content,
+    model: model.id,
+    provider: "vllm",
+    usage,
+    costUSD: 0,
+    latencyMs,
+  };
+}
+
 /* ── 统一调度 ── */
 
 const PROVIDER_MAP: Record<ModelProvider, typeof callAnthropic> = {
@@ -246,15 +290,17 @@ const PROVIDER_MAP: Record<ModelProvider, typeof callAnthropic> = {
   openai: callOpenAI,
   google: callGoogle,
   deepseek: callDeepSeek,
+  vllm: callVllm,
 };
 
-/** 检查某 provider 的 API key 是否已配置 */
+/** 检查某 provider 的 API key / 地址是否已配置 */
 export function isProviderAvailable(provider: ModelProvider): boolean {
   switch (provider) {
     case "anthropic": return !!ANTHROPIC_API_KEY;
     case "openai":    return !!OPENAI_API_KEY;
     case "google":    return !!GOOGLE_API_KEY;
     case "deepseek":  return !!DEEPSEEK_API_KEY;
+    case "vllm":      return !!VLLM_API_BASE;
   }
 }
 
@@ -272,6 +318,7 @@ export async function callModel(
 
 /**
  * 带降级的调用：primary 失败（超时/报错/未配置）时自动切换 fallback
+ * 若 fallback 的 provider 也未配置，则回退到 DeepSeek（应用入口已要求 DEEPSEEK_API_KEY）
  */
 export async function callWithFallback(
   primary: ModelConfig,
@@ -291,6 +338,8 @@ export async function callWithFallback(
     }
   }
 
-  const result = await callModel(fallback, req);
+  // fallback 的 provider 未配置时，改用 DeepSeek（仅配 DEEPSEEK 时也能正常对话）
+  const actualFallback = isProviderAvailable(fallback.provider) ? fallback : MODELS.deepseekChat;
+  const result = await callModel(actualFallback, req);
   return { ...result, usedFallback: true };
 }
