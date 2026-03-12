@@ -47,7 +47,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const status = body.status as LongTermGoal["status"] | undefined;
-  if (!["active", "paused", "completed"].includes(status ?? "")) {
+  if (!status || !["active", "paused", "completed"].includes(status)) {
     return NextResponse.json({ error: "无效的 status" }, { status: 400 });
   }
 
