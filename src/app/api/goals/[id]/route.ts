@@ -4,8 +4,7 @@
  * DELETE → 删除目标
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireUserId } from "@/lib/api-helpers";
 import { db } from "@/lib/db";
 import type { LongTermGoal } from "@/types";
 import type { GoalCategory } from "@/types";
@@ -25,13 +24,13 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const res = await db.execute({
     sql: "SELECT id, title, deadline, category, status, created_at FROM long_term_goals WHERE id = ? AND user_id = ?",
-    args: [id, session.user.id],
+    args: [id, auth.userId],
   });
   const row = (res.rows?.[0] ?? null) as Record<string, unknown> | null;
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -42,19 +41,19 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  const status = body.status as string | undefined;
+  const status = body.status as LongTermGoal["status"] | undefined;
   if (!["active", "paused", "completed"].includes(status ?? "")) {
     return NextResponse.json({ error: "无效的 status" }, { status: 400 });
   }
 
   await db.execute({
     sql: "UPDATE long_term_goals SET status = ? WHERE id = ? AND user_id = ?",
-    args: [status, id, session.user.id],
+    args: [status, id, auth.userId],
   });
   return NextResponse.json({ ok: true });
 }
@@ -63,13 +62,13 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   await db.execute({
     sql: "DELETE FROM long_term_goals WHERE id = ? AND user_id = ?",
-    args: [id, session.user.id],
+    args: [id, auth.userId],
   });
   return NextResponse.json({ ok: true });
 }
