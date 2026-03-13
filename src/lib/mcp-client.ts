@@ -73,7 +73,10 @@ export async function mcpCallTool(
     { name, arguments: args },
     headers,
   );
-  return result ?? { content: [], isError: true };
+  return {
+    content: result?.content ?? [],
+    isError: result?.isError,
+  };
 }
 
 /** 从环境读取单条 MCP 配置（兼容旧逻辑；多服务器请用 getMcpConfigList） */

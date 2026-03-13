@@ -9,8 +9,10 @@ export async function getPreferences(userId: string): Promise<Record<string, unk
     sql: "SELECT key, value FROM user_preferences WHERE user_id = ?",
     args: [userId],
   });
+  type PrefRow = { key: string; value: string };
+  const rows = (res.rows ?? []) as unknown as PrefRow[];
   const out: Record<string, unknown> = {};
-  for (const row of (res.rows || []) as { key: string; value: string }[]) {
+  for (const row of rows) {
     try {
       out[row.key] = JSON.parse(row.value);
     } catch {

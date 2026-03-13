@@ -1,11 +1,13 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 /**
  * 登录 / 注册页面
  * 设计：暖色渐变背景、居中卡片、社交 App 风格（参考 netease-style-app）
  * 支持：Google OAuth + 邮箱密码（Gmail / QQ邮箱 / 163邮箱等）
  */
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BackgroundGradientAnimation } from "@/components/ui/background-gradient-animation";
@@ -20,7 +22,7 @@ const ERROR_MSG: Record<string, string> = {
   Configuration:       "Google 登录未配置，请使用邮箱登录",
 };
 
-export default function LoginPage() {
+function LoginPageInner() {
   const { status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -224,5 +226,13 @@ export default function LoginPage() {
         </p>
       </div>
     </BackgroundGradientAnimation>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }

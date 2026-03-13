@@ -9,7 +9,7 @@ import Link from "next/link";
 import { Send, Mic, MicOff, Loader2, AlertTriangle, Check, X, RefreshCw, Calendar } from "lucide-react";
 import { AILoader } from "@/components/ui/ai-loader";
 import { cn, randomId, splitContentWithUrls } from "@/lib/utils";
-import type { Project, Task, GoalCategory } from "@/types";
+import type { Project, Task, GoalCategory, LongTermGoal } from "@/types";
 
 type NewTaskParams = {
   name: string;
@@ -135,7 +135,7 @@ interface PandaChatProps {
   tasks: Task[];
   onTaskCreated?: (info: { created: number; skipped: string[] }) => void;
   addTask: (task: NewTaskParams) => void;
-  addProject: (project: { name: string; group: "创业" | "工作" | "生活"; description?: string }) => void;
+  addProject: (project: { name: string; group: "创业" | "工作" | "生活"; description?: string }) => Promise<{ ok: boolean; error?: string }>;
   updateTask: (id: string, updates: Partial<Task>) => void;
   /** 首屏为全屏「生成中」风格，无传统聊天框 */
   variant?: "default" | "loaderFirst";
@@ -394,9 +394,9 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
           }),
         });
         if (res.ok) {
-          const created = (await res.json()) as { id: string; title: string; deadline: string; category: string; status: string; createdAt: string };
+          const created = (await res.json()) as LongTermGoal;
           actualGoalId = created.id;
-          useStore.getState().setGoals([...useStore.getState().goals, { ...created, category: created.category as GoalCategory }]);
+          useStore.getState().setGoals([...useStore.getState().goals, created]);
         }
       } catch {
         actualGoalId = actualGoalId || `goal-${Date.now()}`;
@@ -505,14 +505,17 @@ export function PandaChat({ projects, tasks, onTaskCreated, addTask, addProject,
                 const skills = payload.skills ?? [];
                 if (skills.length > 0) {
                   const names = skills.map((s) => s.displayName || s.slug).join("、");
-                  setAgentLogs((prev) => [
-                    ...prev,
-                    {
-                      id: randomId(),
-                      type: "thought",
-                      message: `本轮参考了 ${skills.length} 个社区技能：${names}`,
-                    },
-                  ].slice(-5));
+                  setAgentLogs((prev) => {
+                    const next: AgentLog[] = [
+                      ...prev,
+                      {
+                        id: randomId(),
+                        type: "thought",
+                        message: `本轮参考了 ${skills.length} 个社区技能：${names}`,
+                      },
+                    ];
+                    return next.slice(-5);
+                  });
                 }
               } catch {
                 // 忽略解析错误
